@@ -758,12 +758,19 @@ switch ($task) {
                         }
 
                         if (!is_dir('uploads')) { mkdir('uploads', 0777, true); }
+                        // Schreibrechte sicherstellen (z. B. nach manuellem mkdir)
+                        if (is_dir('uploads') && !is_writable('uploads')) {
+                            @chmod('uploads', 0775);
+                        }
                         $fileNameNew = uniqid('', true) . ".webp";
-                        imagewebp($img, 'uploads/' . $fileNameNew, 45);
+                        $written = @imagewebp($img, 'uploads/' . $fileNameNew, 45);
                         imagedestroy($img);
 
-                        $stmt = $pdo->prepare("INSERT INTO bilder (Rezept_ID, Image) VALUES (:rezeptID, :image)");
-                        $stmt->execute(['rezeptID' => $rezeptID, 'image' => $fileNameNew]);
+                        // Nur DB-Eintrag anlegen wenn Datei wirklich geschrieben wurde
+                        if ($written && file_exists('uploads/' . $fileNameNew)) {
+                            $stmt = $pdo->prepare("INSERT INTO bilder (Rezept_ID, Image) VALUES (:rezeptID, :image)");
+                            $stmt->execute(['rezeptID' => $rezeptID, 'image' => $fileNameNew]);
+                        }
                     }
                 }
             }
@@ -879,8 +886,12 @@ switch ($task) {
                         imagedestroy($img); $img = $newImg;
                     }
                     $fileNameNew = uniqid('', true) . ".webp";
-                    imagewebp($img, 'uploads/' . $fileNameNew, 45);
+                    $written = @imagewebp($img, 'uploads/' . $fileNameNew, 45);
                     imagedestroy($img);
+                    if (!$written) {
+                        echo json_encode(['error' => 'Bild konnte nicht gespeichert werden (Schreibrechte prüfen)', 'success' => false]);
+                        die();
+                    }
                 }
 
                 $sql = $pdo->prepare('INSERT INTO kitchenAppliances (Name, Image) VALUES (:name, :image)');
@@ -926,8 +937,12 @@ switch ($task) {
                             imagedestroy($img); $img = $newImg;
                         }
                         $fileNameNew = uniqid('', true) . ".webp";
-                        imagewebp($img, 'uploads/' . $fileNameNew, 45);
+                        $written = @imagewebp($img, 'uploads/' . $fileNameNew, 45);
                         imagedestroy($img);
+                        if (!$written) {
+                            echo json_encode(['error' => 'Bild konnte nicht gespeichert werden (Schreibrechte prüfen)', 'success' => false]);
+                            die();
+                        }
                     }
                     $sql = $pdo->prepare('UPDATE kitchenAppliances SET Name = :name, Image = :image WHERE ID = :id');
                     $sql->bindValue(':image', $fileNameNew);
