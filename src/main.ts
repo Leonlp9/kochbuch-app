@@ -24,6 +24,8 @@ import App from './App.vue'
 import router from './router'
 import { useUiStore } from './stores/ui'
 import { initNetwork } from './services/network'
+import { Capacitor } from '@capacitor/core'
+import { App as CapApp } from '@capacitor/app'
 
 const app = createApp(App)
 app.use(createPinia())
@@ -34,5 +36,17 @@ const ui = useUiStore()
 ui.initTheme()
 
 void initNetwork()
+
+// Android-Zurück-Taste: vorherige Seite oder App minimieren
+if (Capacitor.isNativePlatform()) {
+  void CapApp.addListener('backButton', () => {
+    if (window.history.state?.back || router.currentRoute.value.path !== '/') {
+      router.back()
+    } else {
+      // Auf der Startseite: App in den Hintergrund (nicht beenden)
+      void CapApp.minimizeApp()
+    }
+  })
+}
 
 app.mount('#app')
