@@ -1,4 +1,5 @@
 import { cacheGet, cacheSet } from './cache'
+import { hasServerConnection } from './network'
 
 export interface FetchResult<T> {
   data: T
@@ -8,7 +9,7 @@ export interface FetchResult<T> {
 /**
  * Holt JSON nach dem Prinzip "network-first":
  *  1. Versuche das Netzwerk. Erfolg -> Antwort cachen und zurueckgeben.
- *  2. Kein Netz / Fehler -> letzten gecachten Stand zurueckgeben (Offline-Lesen).
+ *  2. Kein Netz / Fehler / Server nicht erreichbar -> letzten gecachten Stand zurueckgeben.
  *  3. Weder Netz noch Cache -> Fehler werfen.
  *
  * `cacheKey` bestimmt, unter welchem Schluessel der Stand abgelegt wird.
@@ -18,6 +19,13 @@ export async function getJSON<T>(
   url: string,
   cacheKey: string | null,
 ): Promise<FetchResult<T>> {
+  // Wenn der Server bekannt nicht erreichbar ist, sofort den Cache nutzen
+  // (vermeidet haengende Requests bis zum Browser-Timeout).
+  if (!hasServerConnection.value && cacheKey) {
+    const cached = await cacheGet<T>(cacheKey)
+    if (cached !== undefined) return { data: cached, fromCache: true }
+  }
+
   try {
     const res = await fetch(url, { headers: { Accept: 'application/json' } })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)

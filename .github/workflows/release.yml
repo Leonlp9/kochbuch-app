@@ -1,0 +1,106 @@
+name: Release (APK + OTA-Bundle)
+
+# Wird ausgeloest, wenn ein Versions-Tag gepusht wird (z.B. v1.2.3)
+# Schritt-fuer-Schritt:
+#   1. Web-App bauen  → dist/
+#   2. dist/ als dist.zip packen  (OTA-Bundle fuer Auto-Update)
+#   3. Android APK bauen          (fuer Erst-Installation / native Aenderungen)
+#   4. GitHub-Release erstellen   → APK + dist.zip als Assets anhaengen
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+' # v1.0.0, v2.3.14, …
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # zum Erstellen des Releases noetig
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Node einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Java (JDK 17) einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Android SDK einrichten
+        uses: android-actions/setup-android@v3
+
+      - name: Abhaengigkeiten installieren
+        run: npm install
+
+      # Versionsnummer aus dem Tag lesen (z.B. v1.2.3 → 1.2.3)
+      - name: Version ermitteln
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # package.json auf Tag-Version aktualisieren (damit APP_VERSION stimmt)
+      - name: package.json Version setzen
+        run: npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+
+      # ── Web-Build ──────────────────────────────────────────────────────────
+      - name: Web-App bauen
+        run: npm run build
+
+      - name: dist.zip erstellen (OTA-Bundle)
+        run: cd dist && zip -r ../dist.zip . && cd ..
+
+      # ── Android-Build ──────────────────────────────────────────────────────
+      - name: Android-Plattform hinzufuegen (falls noch nicht vorhanden)
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+
+      - name: App-Icons generieren
+        run: |
+          if [ -f "resources/icon.png" ] || [ -f "resources/icon.jpg" ] || \
+             [ -f "resources/icon.jpeg" ] || [ -f "resources/icon.webp" ]; then
+            npx @capacitor/assets generate --android
+          else
+            echo "Kein resources/icon.* gefunden – Standard-Icon bleibt aktiv."
+          fi
+
+      - name: Android-Projekt synchronisieren
+        run: npx cap sync android
+
+      - name: APK bauen (debug)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: APK umbenennen
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+             kochbuch-v${{ steps.version.outputs.version }}.apk
+
+      # ── GitHub-Release ─────────────────────────────────────────────────────
+      - name: GitHub-Release erstellen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Kochbuch ${{ github.ref_name }}
+          body: |
+            ## Was ist neu
+            _Changelog hier eintragen oder CHANGELOG.md verlinken._
+
+            ## Installation
+            - **Erst-Installation / native Änderungen:** `kochbuch-v${{ steps.version.outputs.version }}.apk` herunterladen und installieren
+            - **OTA-Update:** läuft automatisch – die App lädt `dist.zip` beim nächsten Start
+          files: |
+            kochbuch-v${{ steps.version.outputs.version }}.apk
+            dist.zip
+          draft: false
+          prerelease: false
+

@@ -1,9 +1,13 @@
-name: Android APK bauen
+name: CI – Build-Check
+
+# Prueft bei jedem Push auf main, dass Web + Android noch bauen.
+# Den echten Release (APK + OTA-Bundle) erledigt release.yml beim Tag-Push.
 
 on:
   push:
     branches: [main, master]
-  workflow_dispatch: # erlaubt manuelles Starten ueber den Actions-Tab
+  pull_request:
+    branches: [main, master]
 
 jobs:
   build:
@@ -32,23 +36,8 @@ jobs:
       - name: Web-App bauen
         run: npm run build
 
-      - name: Android-Plattform hinzufuegen
-        run: |
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
-
-      - name: App-Icons generieren
-        run: |
-          if [ -f "resources/icon.png" ] || [ -f "resources/icon.jpg" ] || [ -f "resources/icon.jpeg" ] || [ -f "resources/icon.webp" ]; then
-            npx @capacitor/assets generate --android
-          else
-            echo "Kein resources/icon.* gefunden - Standard-Icon bleibt aktiv."
-          fi
-
       - name: Android-Projekt synchronisieren
-        run: |
-          npx cap sync android
+        run: npx cap sync android
 
       - name: APK bauen (debug)
         run: |
@@ -56,9 +45,3 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: APK als Artefakt hochladen
-        uses: actions/upload-artifact@v4
-        with:
-          name: kochbuch-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error

@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 import { get, set, keys, del } from 'idb-keyval'
-import { isOnline } from './network'
+import { isOnline, hasServerConnection } from './network'
 
 // Bild-Cache: laedt Bilder/Icons einmalig (online) als Blob herunter und legt
 // sie in IndexedDB ab. Danach sind sie auch offline verfuegbar.
@@ -22,7 +22,7 @@ async function doResolve(url: string): Promise<void> {
       resolved.set(url, URL.createObjectURL(cached))
       return
     }
-    if (!isOnline.value) return
+    if (!isOnline.value || !hasServerConnection.value) return
     const res = await fetch(url)
     if (!res.ok) return
     const blob = await res.blob()

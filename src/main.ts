@@ -1,6 +1,10 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
+// OTA-Updater: Pflichtaufruf beim Start – bestätigt stabiles Bundle (verhindert Rollback)
+import { notifyReady } from './services/updater'
+void notifyReady()
+
 // Schriften (gebuendelt -> offline verfuegbar)
 import '@fontsource/fraunces/400.css'
 import '@fontsource/fraunces/600.css'

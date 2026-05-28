@@ -6,6 +6,8 @@ defineProps<{
   recipes: SearchResult[]
   loading?: boolean
   skeletonCount?: number
+  /** Index ab dem neue Karten animiert eingeblendet werden sollen */
+  loadOffset?: number
 }>()
 </script>
 
@@ -22,8 +24,10 @@ defineProps<{
       v-else
       :key="r.rezepte_ID"
       :recipe="r"
-      class="rise"
-      :style="{ animationDelay: `${Math.min(i * 35, 350)}ms` }"
+      :class="i >= (loadOffset ?? 0) ? 'rise' : ''"
+      :style="i >= (loadOffset ?? 0)
+        ? { animationDelay: `${Math.min((i - (loadOffset ?? 0)) * 35, 350)}ms` }
+        : {}"
     />
   </div>
 </template>

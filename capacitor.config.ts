@@ -13,6 +13,11 @@ const config: CapacitorConfig = {
     CapacitorHttp: {
       enabled: true,
     },
+    // OTA-Updates: autoUpdate=false -> wir steuern Download/Anwenden selbst
+    // (prueft GitHub-Releases beim App-Start, laedt dist.zip, wendet beim naechsten Start an)
+    CapacitorUpdater: {
+      autoUpdate: false,
+    },
   },
 }
 

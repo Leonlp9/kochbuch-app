@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { search as apiSearch, getKategorien } from '@/services/api'
 import RecipeGrid from '@/components/RecipeGrid.vue'
@@ -13,9 +13,17 @@ const zeit = ref('4')
 const kategorie = ref('')
 const showFilters = ref(false)
 
-const results = ref<SearchResult[]>([])
+const allResults = ref<SearchResult[]>([])
 const loading = ref(true)
 const kategorien = ref<Kategorie[]>([])
+
+const PAGE_SIZE = 20
+const visibleCount = ref(PAGE_SIZE)
+const loadOffset = ref(0)
+const loadingMore = ref(false)
+
+const visibleResults = computed(() => allResults.value.slice(0, visibleCount.value))
+const hasMore = computed(() => visibleCount.value < allResults.value.length)
 
 const ZEIT_LABEL: Record<string, string> = {
   '0': '0–15 Min',
@@ -33,14 +41,16 @@ const ORDERS = [
 let debounce: number | undefined
 function runSearch() {
   loading.value = true
+  visibleCount.value = PAGE_SIZE
+  loadOffset.value = 0
   apiSearch({
     search: term.value,
     order: order.value,
     zeit: zeit.value,
     kategorie: kategorie.value || undefined,
   })
-    .then(({ data }) => (results.value = data))
-    .catch(() => (results.value = []))
+    .then(({ data }) => (allResults.value = data))
+    .catch(() => (allResults.value = []))
     .finally(() => (loading.value = false))
 }
 function onInput() {
@@ -50,6 +60,32 @@ function onInput() {
 
 watch([order, zeit, kategorie], runSearch)
 
+// --- Infinite Scroll via IntersectionObserver ---
+const sentinel = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+function loadMore() {
+  if (!hasMore.value || loadingMore.value) return
+  loadingMore.value = true
+  // Kleiner Delay damit der Spinner kurz sichtbar ist wenn man sehr schnell scrollt
+  setTimeout(() => {
+    loadOffset.value = visibleCount.value
+    visibleCount.value = Math.min(visibleCount.value + PAGE_SIZE, allResults.value.length)
+    loadingMore.value = false
+  }, 120)
+}
+
+function setupObserver() {
+  observer?.disconnect()
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (entries[0].isIntersecting) loadMore()
+    },
+    { rootMargin: '200px' }, // 200px vor dem Ende vorladen
+  )
+  if (sentinel.value) observer.observe(sentinel.value)
+}
+
 onMounted(() => {
   getKategorien(true).then(({ data }) => (kategorien.value = data)).catch(() => {})
   if (route.query.kategorie) {
@@ -57,6 +93,14 @@ onMounted(() => {
     showFilters.value = true
   }
   runSearch()
+  setupObserver()
+})
+
+onUnmounted(() => observer?.disconnect())
+
+// Observer neu verbinden wenn Sentinel sich ändert (nach loading)
+watch(loading, (v) => {
+  if (!v) setTimeout(setupObserver, 50)
 })
 </script>
 
@@ -116,12 +160,25 @@ onMounted(() => {
     </Transition>
 
     <div class="result-meta">
-      <span>{{ results.length }} Rezepte</span>
+      <span>{{ allResults.length }} Rezepte</span>
     </div>
 
-    <RecipeGrid :recipes="results" :loading="loading" :skeleton-count="8" />
+    <RecipeGrid
+      :recipes="visibleResults"
+      :loading="loading"
+      :skeleton-count="8"
+      :load-offset="loadOffset"
+    />
 
-    <div v-if="!loading && results.length === 0" class="empty">
+    <!-- Sentinel – unsichtbar, löst Nachladen aus -->
+    <div ref="sentinel" class="sentinel"></div>
+
+    <!-- Spinner: nur wenn man schneller scrollt als nachgeladen wird -->
+    <div v-if="loadingMore" class="more-spinner">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+
+    <div v-if="!loading && allResults.length === 0" class="empty">
       <i class="fa-solid fa-utensils"></i>
       <p>Keine Rezepte gefunden. Andere Suche oder Filter probieren.</p>
     </div>
@@ -245,6 +302,19 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--ink-soft);
   font-size: var(--fs-sm);
   margin: var(--sp-4) 0;
+}
+
+.sentinel {
+  height: 1px;
+  margin-top: var(--sp-4);
+}
+
+.more-spinner {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-5);
+  color: var(--ink-faint);
+  font-size: 1.4rem;
 }
 
 .expand-enter-active,
