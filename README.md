@@ -62,7 +62,7 @@ Du installierst **nichts** lokal für Android. Der Build läuft in der Cloud:
 
 1. Neues GitHub-Repository anlegen und das Projekt hochladen:
 
-```bash
+```powershell
 git init
 git add .
 git commit -m "Kochbuch App"
@@ -178,8 +178,10 @@ Themes mit wenigen Zeilen ergänzbar.
   über Auswahl; reicht funktional, ginge aber komfortabler).
 ```
 
+```powershell
 # 1. Version in package.json erhöhen (z.B. 1.0.0 → 1.0.1)
 npm version patch   # oder: minor / major
 
-# 2. Tag pushen → Action läuft automatisch
-git push && git push --tags
+# 2. Commits und Tag pushen → Action läuft automatisch
+git push; git push --tags
+```
