@@ -2,7 +2,7 @@
 import { onMounted } from 'vue'
 import NavBar from '@/components/NavBar.vue'
 import OfflineBanner from '@/components/OfflineBanner.vue'
-import { checkForUpdate, updateReady } from '@/services/updater'
+import { checkForUpdate, updateReady, applyUpdate } from '@/services/updater'
 
 onMounted(() => {
   // Update-Check im Hintergrund – blockiert die App nicht
@@ -19,8 +19,11 @@ onMounted(() => {
       <!-- Update-Banner: erscheint, wenn ein neues Bundle geladen wurde -->
       <Transition name="slide-down">
         <div v-if="updateReady" class="update-banner">
-          <span>✨ Update geladen – beim nächsten Start aktiv!</span>
-          <button class="update-dismiss" @click="updateReady = false">✕</button>
+          <span>✨ Update verfügbar!</span>
+          <div class="update-actions">
+            <button class="update-apply" @click="applyUpdate">Jetzt neu starten</button>
+            <button class="update-dismiss" @click="updateReady = false">✕</button>
+          </div>
         </div>
       </Transition>
 
@@ -57,6 +60,24 @@ onMounted(() => {
   font-size: 0.9rem;
   font-weight: 500;
 }
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.update-apply {
+  background: rgba(255,255,255,0.22);
+  border: 1px solid rgba(255,255,255,0.5);
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  transition: background 0.15s;
+}
+.update-apply:hover { background: rgba(255,255,255,0.35); }
 .update-dismiss {
   background: none;
   border: none;

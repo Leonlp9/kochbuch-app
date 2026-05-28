@@ -5,10 +5,10 @@
  *  1. App startet → notifyAppReady() (Pflicht! Sonst Rollback nach 10 s)
  *  2. GitHub-Releases-API prüfen (https://api.github.com/repos/Leonlp9/kochbuch-app/releases/latest)
  *  3. Ist die Tag-Version > lokale Version? → dist.zip herunterladen
- *  4. Bundle für nächsten Start vormerken (next())
+ *  4. Bundle-ID merken; Nutzer kann per applyUpdate() den Reload manuell auslösen
  *  5. Reaktives Flag setzen → App.vue zeigt Update-Banner
  *
- * Beim nächsten App-Start wird das neue Bundle automatisch geladen.
+ * applyUpdate() ruft CapacitorUpdater.set() auf → sofortiger WebView-Reload mit neuem Bundle.
  * Nur nativer Code (Plugins, Berechtigungen) erfordert weiterhin ein neues APK.
  */
 import { CapacitorUpdater } from '@capgo/capacitor-updater'
@@ -18,8 +18,11 @@ import { ref } from 'vue'
 const GITHUB_REPO = 'Leonlp9/kochbuch-app'
 const CURRENT_VERSION: string = __APP_VERSION__
 
-/** Wird auf true gesetzt, sobald ein Update heruntergeladen und vorgemerkt wurde. */
+/** Wird auf true gesetzt, sobald ein Update heruntergeladen und bereit ist. */
 export const updateReady = ref(false)
+
+/** Intern gespeicherte Bundle-ID für sofortigen Reload via applyUpdate(). */
+let pendingBundleId: string | null = null
 
 /**
  * Muss einmal beim App-Start aufgerufen werden (noch vor dem ersten Render).
@@ -74,13 +77,26 @@ export async function checkForUpdate(): Promise<void> {
       version: latestVersion,
     })
 
-    // Für den nächsten App-Start vormerken (kein sofortiger Reload)
-    await CapacitorUpdater.next({ id: bundle.id })
-
+    // Bundle-ID merken – Aktivierung erfolgt explizit per applyUpdate()
+    pendingBundleId = bundle.id
     updateReady.value = true
-    console.info(`[Updater] Bundle ${latestVersion} bereit – wird beim nächsten Start angewendet.`)
+    console.info(`[Updater] Bundle ${latestVersion} bereit – warte auf Nutzer-Bestätigung.`)
   } catch (err) {
     console.warn('[Updater] Update-Check fehlgeschlagen:', err)
+  }
+}
+
+/**
+ * Wendet das heruntergeladene Bundle sofort an (WebView-Reload).
+ * Wird vom Update-Banner-Button aufgerufen.
+ */
+export async function applyUpdate(): Promise<void> {
+  if (!pendingBundleId) return
+  try {
+    await CapacitorUpdater.set({ id: pendingBundleId })
+    // set() löst einen sofortigen Reload aus – Code danach wird nicht mehr erreicht
+  } catch (err) {
+    console.warn('[Updater] Bundle aktivieren fehlgeschlagen:', err)
   }
 }
 
@@ -96,5 +112,3 @@ function isNewerVersion(latest: string, current: string): boolean {
   if (lMin !== cMin) return lMin > cMin
   return lPat > cPat
 }
-
-
