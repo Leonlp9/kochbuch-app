@@ -5,23 +5,38 @@ import { PI_SERVER } from '@/config'
 import { isOnline } from '@/services/network'
 import { searchZutaten } from '@/services/api'
 import { preloadImages, cachedImageCount, clearImageCache } from '@/services/imageCache'
+import {
+  cachedRecipeCount,
+  downloadAllRecipes,
+  downloadAllRecipeImages,
+} from '@/services/offlineDownload'
 
 const ui = useUiStore()
 
-const cachedCount = ref(0)
-const preloading = ref(false)
+const cachedImgCount = ref(0)
+const cachedRecCount = ref(0)
+
+// Ladezustände je Aktion
+const loadingIcons = ref(false)
+const loadingRecipes = ref(false)
+const loadingImages = ref(false)
+
+// Fortschritt (jeweils eins aktiv)
 const progress = ref(0)
 const progressTotal = ref(0)
+const progressLabel = ref('')
 
-async function refreshCount() {
-  cachedCount.value = await cachedImageCount()
+async function refreshCounts() {
+  cachedImgCount.value = await cachedImageCount()
+  cachedRecCount.value = await cachedRecipeCount()
 }
-onMounted(refreshCount)
+onMounted(refreshCounts)
 
 async function preloadIcons() {
-  if (!isOnline.value || preloading.value) return
-  preloading.value = true
+  if (!isOnline.value || loadingIcons.value) return
+  loadingIcons.value = true
   progress.value = 0
+  progressLabel.value = ''
   try {
     const zutaten = await searchZutaten('*')
     const urls = zutaten.map((z) => z.Image)
@@ -30,17 +45,59 @@ async function preloadIcons() {
       progress.value = done
       progressTotal.value = total
     })
-    await refreshCount()
+    await refreshCounts()
   } catch {
     /* ignore */
   } finally {
-    preloading.value = false
+    loadingIcons.value = false
   }
 }
 
+async function preloadRecipes() {
+  if (!isOnline.value || loadingRecipes.value) return
+  loadingRecipes.value = true
+  progress.value = 0
+  progressTotal.value = 0
+  progressLabel.value = ''
+  try {
+    await downloadAllRecipes((done, total, label) => {
+      progress.value = done
+      progressTotal.value = total
+      progressLabel.value = label ?? ''
+    })
+    await refreshCounts()
+  } catch {
+    /* ignore */
+  } finally {
+    loadingRecipes.value = false
+  }
+}
+
+async function preloadRecipeImages() {
+  if (!isOnline.value || loadingImages.value) return
+  loadingImages.value = true
+  progress.value = 0
+  progressTotal.value = 0
+  progressLabel.value = ''
+  try {
+    await downloadAllRecipeImages((done, total, label) => {
+      progress.value = done
+      progressTotal.value = total
+      progressLabel.value = label ?? ''
+    })
+    await refreshCounts()
+  } catch {
+    /* ignore */
+  } finally {
+    loadingImages.value = false
+  }
+}
+
+const anyLoading = () => loadingIcons.value || loadingRecipes.value || loadingImages.value
+
 async function clearCache() {
   await clearImageCache()
-  await refreshCount()
+  await refreshCounts()
 }
 </script>
 
@@ -83,22 +140,74 @@ async function clearCache() {
 
     <div class="section-title"><h2>Offline</h2></div>
     <div class="card offline">
-      <p>
-        Bilder und Icons werden beim Ansehen eines Rezepts automatisch auf dem
-        Gerät gespeichert und sind danach offline verfügbar. Aktuell gespeichert:
-        <strong>{{ cachedCount }}</strong> Bilder.
-      </p>
+      <div class="offline-stats">
+        <span class="stat"><i class="fa-solid fa-image"></i> <strong>{{ cachedImgCount }}</strong> Bilder/Icons gecacht</span>
+        <span class="stat"><i class="fa-solid fa-book"></i> <strong>{{ cachedRecCount }}</strong> Rezepte gecacht</span>
+      </div>
       <p class="hint">
-        Tipp: Lade alle Zutaten-Icons einmal vorab, dann sehen auch noch nie
-        geöffnete Rezepte offline vollständig aus.
+        Gespeicherte Daten stehen auch ohne Internetverbindung zur Verfügung.
+        Lade alles einmal vorab, damit alle Rezepte vollständig offline funktionieren.
       </p>
+
+      <!-- Aktiver Fortschritt -->
+      <div v-if="anyLoading()" class="progress-row">
+        <div class="progress-bar">
+          <div
+            class="progress-fill"
+            :style="{ width: progressTotal > 0 ? `${(progress / progressTotal) * 100}%` : '0%' }"
+          ></div>
+        </div>
+        <span class="progress-text">
+          {{ progress }}/{{ progressTotal }}
+          <span v-if="progressLabel" class="progress-label">– {{ progressLabel }}</span>
+        </span>
+      </div>
+
       <div class="offline-actions">
-        <button class="btn btn--accent" :disabled="!isOnline || preloading" @click="preloadIcons">
-          <i v-if="preloading" class="fa-solid fa-spinner fa-spin"></i>
-          <i v-else class="fa-solid fa-cloud-arrow-down"></i>
-          {{ preloading ? `Lädt… ${progress}/${progressTotal}` : 'Zutaten-Icons offline speichern' }}
+        <!-- 1. Zutaten-Icons -->
+        <button
+          class="btn btn--outline offline-btn"
+          :disabled="!isOnline || anyLoading()"
+          @click="preloadIcons"
+        >
+          <i v-if="loadingIcons" class="fa-solid fa-spinner fa-spin"></i>
+          <i v-else class="fa-solid fa-icons"></i>
+          <span>
+            <strong>Zutaten-Icons</strong>
+            <small>Alle Zutat-Symbole speichern</small>
+          </span>
         </button>
-        <button class="btn btn--ghost" :disabled="cachedCount === 0" @click="clearCache">
+
+        <!-- 2. Alle Rezepte -->
+        <button
+          class="btn btn--outline offline-btn"
+          :disabled="!isOnline || anyLoading()"
+          @click="preloadRecipes"
+        >
+          <i v-if="loadingRecipes" class="fa-solid fa-spinner fa-spin"></i>
+          <i v-else class="fa-solid fa-book-open"></i>
+          <span>
+            <strong>Alle Rezepte</strong>
+            <small>Rezept-Daten offline speichern</small>
+          </span>
+        </button>
+
+        <!-- 3. Alle Bilder -->
+        <button
+          class="btn btn--outline offline-btn"
+          :disabled="!isOnline || anyLoading()"
+          @click="preloadRecipeImages"
+        >
+          <i v-if="loadingImages" class="fa-solid fa-spinner fa-spin"></i>
+          <i v-else class="fa-solid fa-images"></i>
+          <span>
+            <strong>Alle Bilder</strong>
+            <small>Rezeptfotos offline speichern</small>
+          </span>
+        </button>
+
+        <!-- Cache leeren -->
+        <button class="btn btn--ghost" :disabled="cachedImgCount === 0 && cachedRecCount === 0" @click="clearCache">
           <i class="fa-solid fa-trash"></i> Cache leeren
         </button>
       </div>
@@ -218,10 +327,92 @@ async function clearCache() {
   gap: var(--sp-3);
   padding: var(--sp-4);
 }
-.offline-actions {
+.offline-stats {
   display: flex;
-  gap: var(--sp-3);
+  gap: var(--sp-4);
   flex-wrap: wrap;
+}
+.stat {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+.stat i {
+  color: var(--accent);
+}
+.progress-row {
+  display: grid;
+  gap: var(--sp-2);
+}
+.progress-bar {
+  height: 6px;
+  background: var(--line);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-full);
+  transition: width 0.2s ease;
+}
+.progress-text {
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+.progress-label {
+  color: var(--ink-faint);
+}
+.offline-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--sp-3);
+}
+.offline-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  text-align: left;
+}
+.offline-btn > i {
+  font-size: 1.3rem;
+  color: var(--accent);
+  width: 24px;
+  flex-shrink: 0;
+}
+.offline-btn span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.offline-btn strong {
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.offline-btn small {
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+.btn--outline {
+  border: 1.5px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-radius: var(--r-lg);
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+}
+.btn--outline:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+.btn--outline:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .hint {
   margin-top: var(--sp-2);

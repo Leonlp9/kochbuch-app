@@ -140,3 +140,38 @@ export function updateAppliance(id: number, name: string, image?: File | null) {
 export function deleteAppliance(id: number) {
   return jsonFetch(apiUrl('deleteKitchenAppliance', { id: String(id) }))
 }
+
+// ---------- KI-Rezepterkennung ----------
+export interface AIRecipeIngredient {
+  ingredient_id: number
+  ingredient_name: string
+  quantity: number
+  unit: string
+  additional_info: string
+}
+export interface AIRecipeTable {
+  table_name: string
+  ingredients: AIRecipeIngredient[]
+}
+export interface AIRecipeResult {
+  recipe_name: string
+  category_id: number
+  prep_time_minutes: number
+  portions: number
+  instructions: string
+  kitchen_appliance_ids: number[]
+  optional_infos: { title: string; content: string }[]
+  ingredient_tables: AIRecipeTable[]
+}
+export interface AIAnalysisResponse {
+  success: boolean
+  recipe?: AIRecipeResult
+  error?: string
+}
+
+export async function analyzeRecipeWithAI(file: File): Promise<AIAnalysisResponse> {
+  const fd = new FormData()
+  fd.append('file', file)
+  return jsonFetch<AIAnalysisResponse>(apiUrl('geminiAnalyzeRecipe'), { method: 'POST', body: fd })
+}
+

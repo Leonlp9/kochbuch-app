@@ -1037,6 +1037,191 @@ switch ($task) {
             echo json_encode(['error' => 'Not all parameters provided', 'success' => false]);
             die();
         }
+    case 'geminiAnalyzeRecipe':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_FILES['file'])) {
+            echo json_encode(['error' => 'POST mit Datei erforderlich', 'success' => false]);
+            die();
+        }
+
+        $iniData = parse_ini_file('config.ini');
+        $geminiToken = $iniData['gemini_token'] ?? '';
+
+        if (!$geminiToken) {
+            echo json_encode(['error' => 'Kein Gemini-Token in der config.ini', 'success' => false]);
+            die();
+        }
+
+        $file = $_FILES['file'];
+        if ($file['error'] !== 0) {
+            echo json_encode(['error' => 'Fehler beim Datei-Upload (Code: ' . $file['error'] . ')', 'success' => false]);
+            die();
+        }
+
+        $maxBytes = 18 * 1024 * 1024; // 18 MB Inline-Limit
+        if ($file['size'] > $maxBytes) {
+            echo json_encode(['error' => 'Datei zu groß (max. 18 MB)', 'success' => false]);
+            die();
+        }
+
+        $finfo    = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+
+        $allowedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+        if (!in_array($mimeType, $allowedMimes)) {
+            echo json_encode(['error' => 'Nicht unterstützter Dateityp: ' . $mimeType, 'success' => false]);
+            die();
+        }
+
+        // Alle Zutaten laden
+        $alleZutaten = $pdo->query("SELECT ID, Name, unit FROM zutaten ORDER BY Name")->fetchAll(PDO::FETCH_ASSOC);
+
+        // Kategorien laden
+        $alleKategorien = $pdo->query("SELECT ID, Name FROM kategorien ORDER BY Name")->fetchAll(PDO::FETCH_ASSOC);
+
+        // Kuechengeraete laden
+        $alleGeraete = $pdo->query("SELECT ID, Name FROM kitchenAppliances ORDER BY Name")->fetchAll(PDO::FETCH_ASSOC);
+
+        // Datei als Base64
+        $fileData = base64_encode(file_get_contents($file['tmp_name']));
+
+        // Zutatenliste fuer den Prompt
+        $zutatenLines = array_map(function($z) {
+            return "ID={$z['ID']}: {$z['Name']} (Einheit: {$z['unit']})";
+        }, $alleZutaten);
+        $zutatenText = implode("\n", $zutatenLines);
+
+        $kategorienJson  = json_encode($alleKategorien, JSON_UNESCAPED_UNICODE);
+        $geraeteJson     = json_encode($alleGeraete,    JSON_UNESCAPED_UNICODE);
+
+        // JSON-Schema fuer Structured Output
+        $schema = [
+            'type' => 'object',
+            'properties' => [
+                'recipe_name'  => ['type' => 'string', 'description' => 'Der Name des Rezepts auf Deutsch'],
+                'category_id'  => ['type' => 'integer', 'description' => 'Die ID der am besten passenden Kategorie aus der Kategorienliste. PFLICHTFELD - muss immer gesetzt sein.'],
+                'prep_time_minutes' => ['type' => 'integer', 'description' => 'Gesamte Zubereitungszeit in Minuten (inkl. Backzeit etc.)'],
+                'portions'     => ['type' => 'integer', 'description' => 'Anzahl der Portionen'],
+                'instructions' => ['type' => 'string', 'description' => 'Zubereitung als HTML. Verwende <ol><li>...</li></ol> fuer nummerierte Schritte. Nutze <strong> fuer Hinweise.'],
+                'kitchen_appliance_ids' => [
+                    'type'        => 'array',
+                    'description' => 'IDs der Kuechengeraete aus der bereitgestellten Liste, die fuer dieses Rezept benoetigt werden. Leeres Array wenn keine benoetigt.',
+                    'items'       => ['type' => 'integer']
+                ],
+                'optional_infos' => [
+                    'type'        => 'array',
+                    'description' => 'Optionale Zusatzinformationen wie Kalorien, Naehrwerte, Schwierigkeitsgrad etc., falls im Rezept vorhanden. Sonst leeres Array.',
+                    'items'       => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'title'   => ['type' => 'string', 'description' => 'Bezeichnung, z.B. "Kalorien"'],
+                            'content' => ['type' => 'string', 'description' => 'Wert, z.B. "350 kcal pro Portion"']
+                        ],
+                        'required' => ['title', 'content']
+                    ]
+                ],
+                'ingredient_tables' => [
+                    'type'  => 'array',
+                    'description' => 'Zutatentabellen. Mehrere Tabellen wenn das Rezept verschiedene Komponenten hat (z.B. Teig + Fuellung + Sosse). Sonst eine Tabelle mit leerem Namen.',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'table_name'  => ['type' => 'string', 'description' => 'Tabellenname z.B. "Teig", "Sauce". Fuer die einzige/erste Tabelle leerer String.'],
+                            'ingredients' => [
+                                'type'  => 'array',
+                                'items' => [
+                                    'type' => 'object',
+                                    'properties' => [
+                                        'ingredient_id'   => ['type' => 'integer', 'description' => 'ID aus der Zutatenliste. 0 wenn keine passende vorhanden.'],
+                                        'ingredient_name' => ['type' => 'string', 'description' => 'Name aus der Zutatenliste oder Originalname.'],
+                                        'quantity'        => ['type' => 'number', 'description' => 'Menge als Zahl (0 wenn keine Angabe)'],
+                                        'unit'            => ['type' => 'string', 'description' => 'Einheit aus der Zutatenliste'],
+                                        'additional_info' => ['type' => 'string', 'description' => 'Zusatzinfo wie "gewuerfelt", "gehackt" etc.']
+                                    ],
+                                    'required' => ['ingredient_id', 'ingredient_name', 'quantity', 'unit', 'additional_info']
+                                ]
+                            ]
+                        ],
+                        'required' => ['table_name', 'ingredients']
+                    ]
+                ]
+            ],
+            'required' => ['recipe_name', 'category_id', 'prep_time_minutes', 'portions', 'instructions', 'kitchen_appliance_ids', 'optional_infos', 'ingredient_tables']
+        ];
+
+        $prompt = "Bitte extrahiere das Rezept vollstaendig aus diesem Dokument/Bild.\n\n" .
+                  "Verfuegbare Zutaten-Datenbank:\n" . $zutatenText . "\n\n" .
+                  "Verfuegbare Kategorien: " . $kategorienJson . "\n\n" .
+                  "Verfuegbare Kuechengeraete: " . $geraeteJson . "\n\n" .
+                  "Regeln:\n" .
+                  "- category_id MUSS gesetzt sein - waehle immer die am besten passende Kategorie-ID.\n" .
+                  "- Ordne jede Zutat der passenden Datenbank-Zutat zu (ingredient_id); 0 wenn keine passt.\n" .
+                  "- Trage benoetigt Kuechengeraete als kitchen_appliance_ids ein (leeres Array wenn keine benoetigt).\n" .
+                  "- Trage Naehrwerte/Kalorien/Schwierigkeit o.ae. als optional_infos ein, falls vorhanden.\n" .
+                  "- Trenne Zutaten in sinnvolle Tabellen (z.B. Teig / Belag / Sosse).\n" .
+                  "- Zubereitung als HTML mit <ol><li> fuer Schritte.";
+
+        $payload = [
+            'contents' => [[
+                'parts' => [
+                    ['inline_data' => ['mime_type' => $mimeType, 'data' => $fileData]],
+                    ['text' => $prompt]
+                ]
+            ]],
+            'generationConfig' => [
+                'response_mime_type' => 'application/json',
+                'response_schema'    => $schema
+            ]
+        ];
+
+        $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'x-goog-api-key: ' . $geminiToken
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        $geminiRaw  = curl_exec($ch);
+        $httpCode   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError  = curl_error($ch);
+        curl_close($ch);
+
+        if ($geminiRaw === false || $curlError) {
+            echo json_encode(['error' => 'Gemini API nicht erreichbar: ' . $curlError, 'success' => false]);
+            die();
+        }
+
+        $geminiResponse = json_decode($geminiRaw, true);
+
+        if ($httpCode !== 200) {
+            $errorMsg = $geminiResponse['error']['message'] ?? ('HTTP ' . $httpCode);
+            echo json_encode(['error' => 'Gemini API Fehler: ' . $errorMsg, 'success' => false]);
+            die();
+        }
+
+        $rawText = $geminiResponse['candidates'][0]['content']['parts'][0]['text'] ?? '';
+
+        if (!$rawText) {
+            echo json_encode(['error' => 'Keine Antwort von Gemini erhalten', 'success' => false]);
+            die();
+        }
+
+        // Markdown-Codeblock entfernen falls vorhanden
+        $rawText = preg_replace('/^```json\s*/i', '', trim($rawText));
+        $rawText = preg_replace('/```\s*$/', '', $rawText);
+
+        $recipeData = json_decode(trim($rawText), true);
+
+        if (!$recipeData) {
+            echo json_encode(['error' => 'KI-Antwort konnte nicht als JSON verarbeitet werden', 'success' => false, 'raw' => substr($rawText, 0, 500)]);
+            die();
+        }
+
+        echo json_encode(['success' => true, 'recipe' => $recipeData]);
+        die();
+
     default:
         echo json_encode(['error' => 'Invalid task', 'task' => $task]);
         die();

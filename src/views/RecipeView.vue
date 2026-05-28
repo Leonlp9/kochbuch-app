@@ -17,6 +17,7 @@ import Modal from '@/components/Modal.vue'
 import RichText from '@/components/RichText.vue'
 import { cachedSrc } from '@/services/imageCache'
 import type { Rezept, OptionalInfo, KitchenAppliance, Bewertung } from '@/types/models'
+import { Capacitor } from '@capacitor/core'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -71,8 +72,172 @@ function ingredientsOf(table: string) {
   return (rezept.value?.Zutaten_JSON ?? []).filter((z) => z.table === table)
 }
 
-function printPage() {
-  window.print()
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const printing = ref(false)
+
+async function printPage() {
+  if (!rezept.value || printing.value) return
+
+  // Desktop / Browser: klassischer Druck-Dialog
+  if (!Capacitor.isNativePlatform()) {
+    window.print()
+    return
+  }
+
+  // Mobile (Android Capacitor): PDF via jsPDF erzeugen
+  printing.value = true
+  try {
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const r = rezept.value
+    const pageW = doc.internal.pageSize.getWidth()
+    const margin = 15
+    const contentW = pageW - margin * 2
+    let y = margin
+
+    const addPage = () => {
+      doc.addPage()
+      y = margin
+    }
+
+    const checkY = (needed = 10) => {
+      if (y + needed > doc.internal.pageSize.getHeight() - margin) addPage()
+    }
+
+    // Titel
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(20)
+    const titleLines = doc.splitTextToSize(r.Name, contentW) as string[]
+    doc.text(titleLines, margin, y)
+    y += titleLines.length * 8 + 4
+
+    // Infos
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.setTextColor(120, 120, 120)
+    const zeitStr = (() => {
+      const t = r.Zeit ?? 0
+      const h = Math.floor(t / 60)
+      const m = t % 60
+      return [h > 0 ? `${h} h` : '', m > 0 ? `${m} min` : ''].filter(Boolean).join(' ')
+    })()
+    doc.text(`${r.Kategorie}  ·  ${portionen.value} Portionen  ·  ${zeitStr}`, margin, y)
+    y += 6
+
+    // Trennlinie
+    doc.setDrawColor(200, 200, 200)
+    doc.line(margin, y, pageW - margin, y)
+    y += 6
+
+    // Zutaten
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.setTextColor(40, 40, 40)
+    checkY(12)
+    doc.text('Zutaten', margin, y)
+    y += 7
+
+    for (const table of r.ZutatenTables) {
+      if (table) {
+        checkY(8)
+        doc.setFont('helvetica', 'bolditalic')
+        doc.setFontSize(11)
+        doc.setTextColor(80, 80, 80)
+        doc.text(table, margin, y)
+        y += 5
+      }
+      for (const z of (r.Zutaten_JSON ?? []).filter((z) => z.table === table)) {
+        checkY(6)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(10)
+        doc.setTextColor(40, 40, 40)
+        const menge = scaled(z.Menge)
+        const zeile = `${menge} ${z.unit} ${z.Name}${z.additionalInfo ? ' (' + z.additionalInfo + ')' : ''}`
+        const lines = doc.splitTextToSize(`• ${zeile}`, contentW) as string[]
+        doc.text(lines, margin + 2, y)
+        y += lines.length * 5
+      }
+      y += 2
+    }
+
+    // Zubereitung
+    checkY(14)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.setTextColor(40, 40, 40)
+    doc.text('Zubereitung', margin, y)
+    y += 7
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.setTextColor(40, 40, 40)
+    const zuberLines = doc.splitTextToSize(stripHtml(r.Zubereitung), contentW) as string[]
+    for (const line of zuberLines) {
+      checkY(6)
+      doc.text(line, margin, y)
+      y += 5
+    }
+
+    // Anmerkungen
+    const anm = r.Anmerkungen.filter((a) => a.Anmerkung)
+    if (anm.length) {
+      y += 4
+      checkY(12)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(12)
+      doc.setTextColor(40, 40, 40)
+      doc.text('Anmerkungen', margin, y)
+      y += 6
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(10)
+      for (const a of anm) {
+        const txt = doc.splitTextToSize(stripHtml(decodeAnmerkung(a.Anmerkung)), contentW) as string[]
+        for (const line of txt) {
+          checkY(5)
+          doc.text(line, margin, y)
+          y += 5
+        }
+      }
+    }
+
+    const pdfBlob = doc.output('blob')
+    const filename = `${r.Name.replace(/[^a-z0-9äöüß\s]/gi, '').trim()}.pdf`
+
+    // Web Share API (Android unterstützt das nativ)
+    if (navigator.canShare) {
+      const file = new File([pdfBlob], filename, { type: 'application/pdf' })
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: r.Name })
+        return
+      }
+    }
+
+    // Fallback: Blob-URL öffnen / herunterladen
+    const url = URL.createObjectURL(pdfBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 10000)
+  } catch (e) {
+    showToast('PDF konnte nicht erstellt werden')
+    console.error(e)
+  } finally {
+    printing.value = false
+  }
 }
 
 function toggleCheck(key: string) {
@@ -294,8 +459,10 @@ onMounted(async () => {
 
       <!-- Aktionen -->
       <div class="actions no-print">
-        <button class="btn btn--ghost" @click="printPage">
-          <i class="fa-solid fa-print"></i> Drucken
+        <button class="btn btn--ghost" :disabled="printing" @click="printPage">
+          <i v-if="printing" class="fa-solid fa-spinner fa-spin"></i>
+          <i v-else class="fa-solid fa-print"></i>
+          {{ Capacitor.isNativePlatform() ? 'PDF / Teilen' : 'Drucken' }}
         </button>
         <button class="btn btn--accent" :disabled="!isOnline" @click="addToCart">
           <i class="fa-solid fa-basket-shopping"></i> Zutaten zu Bring
