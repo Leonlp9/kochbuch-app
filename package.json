@@ -9,7 +9,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "assets:android": "capacitor-assets generate --android",
-    "cap:sync": "cap sync android",
+    "cap:sync": "cap sync android && node scripts/patch-android.mjs",
     "cap:open": "cap open android"
   },
   "dependencies": {
