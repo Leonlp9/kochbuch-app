@@ -43,6 +43,11 @@ onMounted(() => {
   grid-template-columns: var(--nav-w) 1fr;
   min-height: 100vh;
   min-height: 100dvh;
+  /* Status-Bar / Kamera-Notch oben freistellen */
+  padding-top: env(safe-area-inset-top, 0px);
+  /* Landscape-Notch links/rechts */
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 .app-main {
   min-width: 0;
@@ -123,6 +128,9 @@ onMounted(() => {
 @media (max-width: 768px) {
   .app-shell {
     grid-template-columns: 1fr;
+    /* Auf Mobile: kein seitliches NavBar-Padding, Safe-Area wird von NavBar selbst gehandelt */
+    padding-left: 0;
+    padding-right: 0;
   }
   .app-main {
     padding-bottom: calc(var(--nav-h-mobile) + env(safe-area-inset-bottom, 0px));

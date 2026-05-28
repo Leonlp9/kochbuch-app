@@ -45,7 +45,11 @@ const items: NavItem[] = [
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
-  padding: var(--sp-3) var(--sp-2);
+  /* Safe-Area: Kamera-Notch oben + Landscape-Notch links */
+  padding: calc(var(--sp-3) + env(safe-area-inset-top, 0px))
+           var(--sp-2)
+           var(--sp-3)
+           calc(var(--sp-2) + env(safe-area-inset-left, 0px));
   z-index: 100;
   overflow: hidden;
   transition: width 0.32s var(--ease);
@@ -130,7 +134,11 @@ const items: NavItem[] = [
     align-items: stretch;
     justify-content: space-around;
     gap: 0;
-    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    /* kein top-padding nötig (unten), aber links/rechts für Landscape */
+    padding: 0
+             env(safe-area-inset-right, 0px)
+             env(safe-area-inset-bottom, 0px)
+             env(safe-area-inset-left, 0px);
     border-right: none;
     border-top: 1px solid var(--line);
     transition: none;
