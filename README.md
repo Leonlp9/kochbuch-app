@@ -177,3 +177,9 @@ Themes mit wenigen Zeilen ergänzbar.
 - **Drag & Drop** für Zutaten-Reihenfolge im Editor (aktuell: Tabellen-Zuordnung
   über Auswahl; reicht funktional, ginge aber komfortabler).
 ```
+
+# 1. Version in package.json erhöhen (z.B. 1.0.0 → 1.0.1)
+npm version patch   # oder: minor / major
+
+# 2. Tag pushen → Action läuft automatisch
+git push && git push --tags
