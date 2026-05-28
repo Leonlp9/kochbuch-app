@@ -135,8 +135,10 @@ function openCategory(id: number) {
 
     <!-- Zufall -->
     <div class="section-title">
-      <span class="eyebrow">Zufallsauswahl</span>
-      <h2 style="flex: 1">Lust auf etwas Neues?</h2>
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;">
+        <span class="eyebrow">Zufallsauswahl</span>
+        <h2>Lust auf etwas Neues?</h2>
+      </div>
       <button class="btn btn--ghost shake" @click="loadRandom">
         <i class="fa-solid fa-shuffle"></i> Shake
       </button>

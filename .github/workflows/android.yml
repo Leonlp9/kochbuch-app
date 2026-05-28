@@ -4,10 +4,8 @@ name: CI – Build-Check
 # Den echten Release (APK + OTA-Bundle) erledigt release.yml beim Tag-Push.
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
+  # manual trigger (z.B. zum Testen oder bei groesseren Aenderungen, die nicht sofort auf main gemerged werden sollen)
+  workflow_dispatch:
 
 jobs:
   build:
