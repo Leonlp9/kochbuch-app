@@ -45,6 +45,9 @@ jobs:
       - name: Android-Projekt synchronisieren
         run: npx cap sync android
 
+      - name: Android-Build-Konfiguration patchen (compileSdk 35 / AGP 8.7.3 / Gradle 8.9)
+        run: node scripts/patch-android.mjs
+
       - name: APK bauen (debug)
         run: |
           cd android
