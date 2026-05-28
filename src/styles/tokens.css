@@ -1,0 +1,211 @@
+/* =====================================================================
+   KOCHBUCH – Design Tokens
+   Aesthetik: warmes, redaktionelles Kochmagazin. Cremiges Papier,
+   tiefe Tinte, selbstbewusster Terrakotta-Akzent, Gold fuer Sterne.
+   ===================================================================== */
+
+:root {
+  /* --- Farben: Light (Standard) --- */
+  --bg: #faf6f0;
+  --bg-tint: #f3ebe0;
+  --surface: #ffffff;
+  --surface-2: #f6efe6;
+  --surface-3: #efe5d8;
+
+  --ink: #2b2522;
+  --ink-soft: #6f655c;
+  --ink-faint: #a89c90;
+
+  --line: #e9ddca;
+  --line: #e7ddcd;
+
+  --accent: #c8553d;
+  --accent-strong: #a8442f;
+  --accent-soft: #f7e6df;
+  --on-accent: #fffaf6;
+
+  --gold: #d29a3a;
+  --green: #5c8054;
+  --green-soft: #e4eede;
+  --danger: #c0473b;
+  --danger-soft: #f6e0dd;
+
+  /* --- Typografie --- */
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-body: 'Work Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --fs-display: clamp(2rem, 5vw, 2.9rem);
+  --fs-h1: clamp(1.7rem, 4vw, 2.2rem);
+  --fs-h2: 1.35rem;
+  --fs-h3: 1.1rem;
+  --fs-body: 1rem;
+  --fs-sm: 0.875rem;
+  --fs-xs: 0.78rem;
+
+  /* --- Abstaende (8pt-Skala) --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* --- Radien --- */
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --r-full: 999px;
+
+  /* --- Schatten (warm getoent) --- */
+  --shadow-sm: 0 1px 2px rgba(43, 37, 34, 0.06), 0 1px 3px rgba(43, 37, 34, 0.05);
+  --shadow-md: 0 4px 12px rgba(43, 37, 34, 0.08), 0 2px 4px rgba(43, 37, 34, 0.05);
+  --shadow-lg: 0 12px 32px rgba(43, 37, 34, 0.12), 0 4px 8px rgba(43, 37, 34, 0.06);
+
+  /* --- Layout --- */
+  --nav-w: 76px;
+  --nav-w-open: 232px;
+  --nav-h-mobile: 64px;
+  --container: 1100px;
+
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* --- Farben: Dark --- */
+html[data-theme='dark'] {
+  --bg: #1a1613;
+  --bg-tint: #211b16;
+  --surface: #231d18;
+  --surface-2: #2c241d;
+  --surface-3: #362c23;
+
+  --ink: #f4ece1;
+  --ink-soft: #bcae9f;
+  --ink-faint: #877a6c;
+
+  --line: #3a3026;
+
+  --accent: #e0735a;
+  --accent-strong: #ec8369;
+  --accent-soft: #3a261f;
+  --on-accent: #1a1613;
+
+  --gold: #e0b35a;
+  --green: #7faa72;
+  --green-soft: #2a3526;
+  --danger: #e07061;
+  --danger-soft: #3a221f;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* --- Weitere Themes (kompakt, nur Farb-Tokens) --- */
+html[data-theme='midnight'] {
+  --bg: #0c0d10;
+  --bg-tint: #131419;
+  --surface: #15171c;
+  --surface-2: #1d2027;
+  --surface-3: #272b34;
+  --ink: #eef0f5;
+  --ink-soft: #a7adbb;
+  --ink-faint: #6b7180;
+  --line: #272b34;
+  --accent: #5aa9e6;
+  --accent-strong: #7bc0f5;
+  --accent-soft: #16242f;
+  --on-accent: #0c0d10;
+  --gold: #e0b35a;
+  --green: #6fae6f;
+  --green-soft: #18261a;
+  --danger: #e0675c;
+  --danger-soft: #2c1a18;
+}
+
+html[data-theme='dracula'] {
+  --bg: #282a36;
+  --bg-tint: #2d3040;
+  --surface: #343746;
+  --surface-2: #3d4256;
+  --surface-3: #474d63;
+  --ink: #f8f8f2;
+  --ink-soft: #c3c6d4;
+  --ink-faint: #8489a3;
+  --line: #474d63;
+  --accent: #ff79c6;
+  --accent-strong: #ff92d0;
+  --accent-soft: #3a2c3a;
+  --on-accent: #282a36;
+  --gold: #f1fa8c;
+  --green: #50fa7b;
+  --green-soft: #213a29;
+  --danger: #ff5555;
+  --danger-soft: #3a2424;
+}
+
+html[data-theme='spring'] {
+  --bg: #f3faf2;
+  --bg-tint: #e6f4e6;
+  --surface: #ffffff;
+  --surface-2: #e9f5ea;
+  --surface-3: #d9eeda;
+  --ink: #244a32;
+  --ink-soft: #5a7d63;
+  --ink-faint: #8fae96;
+  --line: #d2ead4;
+  --accent: #3f9d6a;
+  --accent-strong: #2f8557;
+  --accent-soft: #dcf0e2;
+  --on-accent: #ffffff;
+  --gold: #e0a73a;
+  --green: #3f9d6a;
+  --green-soft: #dcf0e2;
+  --danger: #d76a5a;
+  --danger-soft: #f6e0db;
+}
+
+html[data-theme='christmas'] {
+  --bg: #f7f3ef;
+  --bg-tint: #efe6df;
+  --surface: #ffffff;
+  --surface-2: #f1e7e2;
+  --surface-3: #e7d8d2;
+  --ink: #2e3b30;
+  --ink-soft: #5e6b5f;
+  --ink-faint: #93a094;
+  --line: #e3d6cf;
+  --accent: #b23b3b;
+  --accent-strong: #94302f;
+  --accent-soft: #f4ddd9;
+  --on-accent: #fffaf6;
+  --gold: #c69a3a;
+  --green: #2f7d4f;
+  --green-soft: #dcefe0;
+  --danger: #b23b3b;
+  --danger-soft: #f4ddd9;
+}
+
+html[data-theme='helloween'] {
+  --bg: #14110f;
+  --bg-tint: #1c1813;
+  --surface: #1e1a15;
+  --surface-2: #27211a;
+  --surface-3: #322a20;
+  --ink: #f4ece1;
+  --ink-soft: #bcae9c;
+  --ink-faint: #857a68;
+  --line: #322a20;
+  --accent: #e8721c;
+  --accent-strong: #ff8a2e;
+  --accent-soft: #36251a;
+  --on-accent: #14110f;
+  --gold: #e0b35a;
+  --green: #8aa84a;
+  --green-soft: #28301a;
+  --danger: #e0675c;
+  --danger-soft: #33201d;
+}

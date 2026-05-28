@@ -1,0 +1,788 @@
+<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import {
+  getKategorien,
+  getRezept,
+  getKitchenAppliances,
+  searchZutaten,
+  type ZutatSuche,
+} from '@/services/api'
+import {
+  saveRezept,
+  addZutat,
+  getImages,
+  deleteImage,
+  type ServerImage,
+} from '@/services/writeApi'
+import { isOnline } from '@/services/network'
+import Modal from '@/components/Modal.vue'
+import RichText from '@/components/RichText.vue'
+import type { Kategorie, KitchenAppliance } from '@/types/models'
+
+const props = defineProps<{ id?: string }>()
+const router = useRouter()
+const isEdit = computed(() => props.id != null)
+
+const UNITS = ['g', 'ml', 'Stück', 'Prise', 'TL', 'EL', 'Tasse', 'Packung', 'Bund', 'Dose', 'Paket', 'Becher', 'Scheibe', 'Zehe', 'Zweige', 'Würfel', 'Messerspitze']
+
+interface EditIngredient {
+  ID: number
+  Menge: number
+  unit: string
+  Name: string
+  Image: string
+  additionalInfo: string
+  table: string
+}
+interface OptInfo {
+  title: string
+  content: string
+}
+
+const name = ref('')
+const kategorieId = ref('')
+const dauer = ref(30)
+const portionen = ref(4)
+const anleitung = ref('')
+const tables = ref<string[]>([''])
+const ingredients = ref<EditIngredient[]>([])
+const optInfos = ref<OptInfo[]>([])
+const selectedAppliances = ref<KitchenAppliance[]>([])
+
+const kategorien = ref<Kategorie[]>([])
+const allAppliances = ref<KitchenAppliance[]>([])
+const existingImages = ref<ServerImage[]>([])
+const newFiles = ref<File[]>([])
+const newPreviews = ref<string[]>([])
+
+const saving = ref(false)
+const loading = ref(true)
+const errorMsg = ref('')
+
+// --- Modals ---
+const showIngredientSearch = ref(false)
+const searchTable = ref('')
+const ingredientQuery = ref('')
+const ingredientResults = ref<ZutatSuche[]>([])
+const showNewIngredient = ref(false)
+const newIngName = ref('')
+const newIngUnit = ref('g')
+const showAppliancePicker = ref(false)
+
+function ingredientsOf(table: string) {
+  return ingredients.value.filter((z) => z.table === table)
+}
+
+onMounted(async () => {
+  try {
+    const [k, a] = await Promise.all([getKategorien(), getKitchenAppliances()])
+    kategorien.value = k.data
+    allAppliances.value = a.data
+  } catch {
+    /* offline – Listen evtl. leer */
+  }
+
+  if (isEdit.value && props.id) {
+    try {
+      const { data } = await getRezept(props.id)
+      name.value = data.Name
+      kategorieId.value = String(data.Kategorie_ID)
+      dauer.value = data.Zeit
+      portionen.value = data.Portionen
+      anleitung.value = data.Zubereitung || ''
+      tables.value = data.ZutatenTables?.length ? data.ZutatenTables : ['']
+      ingredients.value = (data.Zutaten_JSON || []).map((z) => ({
+        ID: z.ID,
+        Menge: z.Menge,
+        unit: z.unit,
+        Name: z.Name,
+        Image: z.Image,
+        additionalInfo: z.additionalInfo || '',
+        table: z.table || '',
+      }))
+      try {
+        optInfos.value = JSON.parse(data.OptionalInfos || '[]')
+      } catch {
+        optInfos.value = []
+      }
+      try {
+        const sel = JSON.parse(data.KitchenAppliances || '[]') as KitchenAppliance[]
+        selectedAppliances.value = sel
+      } catch {
+        selectedAppliances.value = []
+      }
+      const imgs = await getImages(props.id)
+      existingImages.value = imgs
+    } catch (e) {
+      errorMsg.value = 'Rezept konnte nicht geladen werden (online sein?).'
+    }
+  }
+  loading.value = false
+})
+
+// --- Tabellen ---
+function addTable() {
+  tables.value.push(`Tabelle ${tables.value.length + 1}`)
+}
+function renameTable(index: number, value: string) {
+  const old = tables.value[index]
+  tables.value[index] = value
+  ingredients.value.forEach((z) => {
+    if (z.table === old) z.table = value
+  })
+}
+function removeTable(index: number) {
+  const t = tables.value[index]
+  ingredients.value = ingredients.value.filter((z) => z.table !== t)
+  tables.value.splice(index, 1)
+  if (tables.value.length === 0) tables.value = ['']
+}
+
+// --- Zutaten ---
+async function runIngredientSearch() {
+  try {
+    ingredientResults.value = await searchZutaten(ingredientQuery.value)
+  } catch {
+    ingredientResults.value = []
+  }
+}
+function openIngredientSearch(table: string) {
+  searchTable.value = table
+  ingredientQuery.value = ''
+  showIngredientSearch.value = true
+  runIngredientSearch()
+}
+function pickIngredient(z: ZutatSuche) {
+  ingredients.value.push({
+    ID: z.ID,
+    Menge: 0,
+    unit: z.unit,
+    Name: z.Name,
+    Image: z.Image,
+    additionalInfo: '',
+    table: searchTable.value,
+  })
+  showIngredientSearch.value = false
+}
+function removeIngredient(ing: EditIngredient) {
+  ingredients.value = ingredients.value.filter((z) => z !== ing)
+}
+async function createIngredient() {
+  if (!newIngName.value.trim()) return
+  try {
+    const res = await addZutat(newIngName.value.trim(), newIngUnit.value)
+    if (res.ID) {
+      ingredients.value.push({
+        ID: res.ID,
+        Menge: 0,
+        unit: newIngUnit.value,
+        Name: newIngName.value.trim(),
+        Image: '',
+        additionalInfo: '',
+        table: searchTable.value,
+      })
+    }
+    showNewIngredient.value = false
+    showIngredientSearch.value = false
+    newIngName.value = ''
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : 'Fehler beim Anlegen der Zutat'
+  }
+}
+
+// --- Geräte ---
+function toggleAppliance(a: KitchenAppliance) {
+  const i = selectedAppliances.value.findIndex((x) => x.ID === a.ID)
+  if (i >= 0) selectedAppliances.value.splice(i, 1)
+  else selectedAppliances.value.push(a)
+}
+function isApplianceSelected(a: KitchenAppliance) {
+  return selectedAppliances.value.some((x) => x.ID === a.ID)
+}
+
+// --- Zusatzinfos ---
+function addOptInfo() {
+  optInfos.value.push({ title: '', content: '' })
+}
+function removeOptInfo(i: number) {
+  optInfos.value.splice(i, 1)
+}
+
+// --- Bilder ---
+function onFilesPicked(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (!input.files) return
+  for (const f of Array.from(input.files)) {
+    newFiles.value.push(f)
+    newPreviews.value.push(URL.createObjectURL(f))
+  }
+  input.value = ''
+}
+function removeNewFile(i: number) {
+  newFiles.value.splice(i, 1)
+  newPreviews.value.splice(i, 1)
+}
+async function removeExistingImage(img: ServerImage) {
+  if (!props.id) return
+  try {
+    await deleteImage(props.id, img.ID)
+    existingImages.value = existingImages.value.filter((x) => x.ID !== img.ID)
+  } catch {
+    errorMsg.value = 'Bild konnte nicht gelöscht werden'
+  }
+}
+
+// --- Speichern ---
+async function save() {
+  errorMsg.value = ''
+  if (!isOnline.value) {
+    errorMsg.value = 'Speichern geht nur mit Verbindung zum Server.'
+    return
+  }
+  if (!name.value.trim()) {
+    errorMsg.value = 'Bitte einen Namen eingeben.'
+    return
+  }
+  if (!kategorieId.value) {
+    errorMsg.value = 'Bitte eine Kategorie wählen.'
+    return
+  }
+
+  saving.value = true
+  try {
+    const fd = new FormData()
+    fd.append('name', name.value.trim())
+    fd.append('kategorie', kategorieId.value)
+    fd.append('dauer', String(dauer.value))
+    fd.append('portionen', String(portionen.value))
+    fd.append('anleitung', anleitung.value)
+    fd.append(
+      'zutaten',
+      JSON.stringify(
+        ingredients.value.map((z) => ({
+          ID: z.ID,
+          Menge: z.Menge,
+          additionalInfo: z.additionalInfo,
+          table: z.table,
+        })),
+      ),
+    )
+    fd.append('extraCustomInfos', JSON.stringify(optInfos.value))
+    fd.append('kitchenAppliances', JSON.stringify(selectedAppliances.value.map((a) => a.ID)))
+    for (const f of newFiles.value) fd.append('bilder[]', f)
+
+    const res = await saveRezept(fd, isEdit.value ? Number(props.id) : undefined)
+    const newId = res.ID ?? props.id
+    router.push(`/recipe/${newId}`)
+  } catch (e) {
+    errorMsg.value = e instanceof Error ? e.message : 'Speichern fehlgeschlagen'
+  } finally {
+    saving.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="container">
+    <RouterLink :to="isEdit ? `/recipe/${id}` : '/'" class="back no-print">
+      <i class="fa-solid fa-arrow-left"></i> Abbrechen
+    </RouterLink>
+    <h1>{{ isEdit ? 'Rezept bearbeiten' : 'Neues Rezept' }}</h1>
+
+    <div v-if="!isOnline" class="warn">
+      <i class="fa-solid fa-plug-circle-xmark"></i>
+      Ohne Serververbindung kannst du nicht speichern. Felder bleiben sichtbar.
+    </div>
+
+    <div v-if="loading" class="empty"><i class="fa-solid fa-spinner fa-spin"></i></div>
+
+    <form v-else class="form" @submit.prevent="save">
+      <!-- Grunddaten -->
+      <div class="field">
+        <label>Name</label>
+        <input v-model="name" type="text" placeholder="Rezeptname" />
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label>Kategorie</label>
+          <select v-model="kategorieId" class="select">
+            <option value="" disabled>Bitte wählen</option>
+            <option v-for="k in kategorien" :key="k.ID" :value="String(k.ID)">{{ k.Name }}</option>
+          </select>
+        </div>
+        <div class="grid2 sub">
+          <div class="field">
+            <label>Dauer (Min.)</label>
+            <input v-model.number="dauer" type="number" min="0" step="5" />
+          </div>
+          <div class="field">
+            <label>Portionen</label>
+            <input v-model.number="portionen" type="number" min="1" step="1" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Geräte -->
+      <div class="field">
+        <label>Küchengeräte</label>
+        <div class="chips">
+          <span v-for="a in selectedAppliances" :key="a.ID" class="chip on" @click="toggleAppliance(a)">
+            {{ a.Name }} <i class="fa-solid fa-xmark"></i>
+          </span>
+          <button type="button" class="chip add" @click="showAppliancePicker = true">
+            <i class="fa-solid fa-plus"></i> Gerät
+          </button>
+        </div>
+      </div>
+
+      <!-- Zusatzinfos -->
+      <div class="field">
+        <label>Zusätzliche Infos (z. B. Kalorien)</label>
+        <div v-for="(info, i) in optInfos" :key="i" class="optinfo">
+          <input v-model="info.title" placeholder="Titel" />
+          <input v-model="info.content" placeholder="Inhalt" />
+          <button type="button" class="icon-btn danger" @click="removeOptInfo(i)">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </div>
+        <button type="button" class="btn btn--ghost small" @click="addOptInfo">
+          <i class="fa-solid fa-plus"></i> Info hinzufügen
+        </button>
+      </div>
+
+      <!-- Zutaten -->
+      <h2 class="sec">Zutaten</h2>
+      <div v-for="(table, ti) in tables" :key="ti" class="ztable">
+        <div class="ztable-head">
+          <input
+            :value="table"
+            placeholder="Tabellenname (optional)"
+            @input="renameTable(ti, ($event.target as HTMLInputElement).value)"
+          />
+          <button v-if="tables.length > 1" type="button" class="icon-btn danger" @click="removeTable(ti)">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </div>
+
+        <div v-for="ing in ingredientsOf(table)" :key="ing.ID + '-' + ing.table" class="zrow">
+          <img :src="ing.Image || ''" :alt="ing.Name" onerror="this.style.visibility='hidden'" />
+          <span class="zname">{{ ing.Name }}</span>
+          <input v-model.number="ing.Menge" type="number" min="0" step="0.1" class="zmenge" />
+          <span class="zunit">{{ ing.unit }}</span>
+          <input v-model="ing.additionalInfo" placeholder="Info" class="zinfo" />
+          <button type="button" class="icon-btn danger" @click="removeIngredient(ing)">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <button type="button" class="btn btn--ghost small" @click="openIngredientSearch(table)">
+          <i class="fa-solid fa-plus"></i> Zutat hinzufügen
+        </button>
+      </div>
+      <button type="button" class="btn btn--ghost small" @click="addTable">
+        <i class="fa-solid fa-table-list"></i> Neue Tabelle
+      </button>
+
+      <!-- Zubereitung -->
+      <h2 class="sec">Zubereitung</h2>
+      <RichText v-model="anleitung" placeholder="Schritt für Schritt…" />
+
+      <!-- Bilder -->
+      <h2 class="sec">Bilder</h2>
+      <label class="upload">
+        <i class="fa-solid fa-upload"></i> Bilder auswählen
+        <input type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFilesPicked" />
+      </label>
+      <div v-if="newPreviews.length || existingImages.length" class="thumbs">
+        <div v-for="img in existingImages" :key="'e' + img.ID" class="thumb">
+          <img :src="img.Image.startsWith('http') ? img.Image : ''" alt="" />
+          <button type="button" class="thumb-del" @click="removeExistingImage(img)">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </div>
+        <div v-for="(src, i) in newPreviews" :key="'n' + i" class="thumb">
+          <img :src="src" alt="" />
+          <span class="thumb-new">neu</span>
+          <button type="button" class="thumb-del" @click="removeNewFile(i)">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+
+      <p v-if="errorMsg" class="error-line">{{ errorMsg }}</p>
+
+      <div class="actions no-print">
+        <button type="submit" class="btn btn--accent btn--block" :disabled="saving || !isOnline">
+          <i v-if="saving" class="fa-solid fa-spinner fa-spin"></i>
+          <i v-else class="fa-solid fa-floppy-disk"></i>
+          {{ saving ? 'Speichern…' : isEdit ? 'Speichern' : 'Rezept anlegen' }}
+        </button>
+      </div>
+    </form>
+
+    <!-- Modal: Zutat suchen -->
+    <Modal v-if="showIngredientSearch" title="Zutat hinzufügen" @close="showIngredientSearch = false">
+      <input
+        v-model="ingredientQuery"
+        class="search-in"
+        placeholder="Zutat suchen…"
+        @input="runIngredientSearch"
+      />
+      <div class="ing-results">
+        <button
+          v-for="z in ingredientResults"
+          :key="z.ID"
+          type="button"
+          class="ing-result"
+          @click="pickIngredient(z)"
+        >
+          <img :src="z.Image" :alt="z.Name" onerror="this.style.visibility='hidden'" />
+          <span>{{ z.Name }}</span>
+          <small>{{ z.unit }}</small>
+        </button>
+      </div>
+      <template #footer>
+        <button class="btn btn--ghost" @click="(showNewIngredient = true)">
+          <i class="fa-solid fa-plus"></i> Neue Zutat anlegen
+        </button>
+      </template>
+    </Modal>
+
+    <!-- Modal: neue Zutat -->
+    <Modal v-if="showNewIngredient" title="Neue Zutat" @close="showNewIngredient = false">
+      <div class="field">
+        <label>Name</label>
+        <input v-model="newIngName" placeholder="z. B. Mehl" />
+      </div>
+      <div class="field">
+        <label>Einheit</label>
+        <select v-model="newIngUnit" class="select">
+          <option v-for="u in UNITS" :key="u" :value="u">{{ u }}</option>
+        </select>
+      </div>
+      <template #footer>
+        <button class="btn btn--ghost" @click="showNewIngredient = false">Abbrechen</button>
+        <button class="btn btn--accent" @click="createIngredient">Anlegen</button>
+      </template>
+    </Modal>
+
+    <!-- Modal: Geräte -->
+    <Modal v-if="showAppliancePicker" title="Küchengeräte" @close="showAppliancePicker = false">
+      <div class="appliance-grid">
+        <button
+          v-for="a in allAppliances"
+          :key="a.ID"
+          type="button"
+          class="appliance"
+          :class="{ on: isApplianceSelected(a) }"
+          @click="toggleAppliance(a)"
+        >
+          <img :src="a.Image" :alt="a.Name" onerror="this.style.visibility='hidden'" />
+          <span>{{ a.Name }}</span>
+        </button>
+      </div>
+      <template #footer>
+        <button class="btn btn--accent" @click="showAppliancePicker = false">Fertig</button>
+      </template>
+    </Modal>
+  </div>
+</template>
+
+<style scoped>
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-soft);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-3);
+}
+.warn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: var(--danger-soft);
+  color: var(--danger);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  margin: var(--sp-4) 0;
+  font-size: var(--fs-sm);
+}
+.form {
+  display: grid;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+.field {
+  display: grid;
+  gap: var(--sp-2);
+}
+.field > label {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+.grid2.sub {
+  gap: var(--sp-3);
+}
+@media (max-width: 600px) {
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+}
+input,
+.select {
+  width: 100%;
+  height: 48px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 var(--sp-3);
+  outline: none;
+}
+input:focus,
+.select:focus {
+  border-color: var(--accent);
+}
+.sec {
+  margin-top: var(--sp-4);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 38px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip.on {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: transparent;
+}
+.chip.add {
+  color: var(--accent);
+}
+
+.optinfo {
+  display: grid;
+  grid-template-columns: 1fr 1fr 44px;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.btn.small {
+  min-height: 42px;
+  width: fit-content;
+}
+
+.ztable {
+  background: var(--surface-2);
+  border-radius: var(--r-lg);
+  padding: var(--sp-3);
+  display: grid;
+  gap: var(--sp-2);
+}
+.ztable-head {
+  display: grid;
+  grid-template-columns: 1fr 44px;
+  gap: var(--sp-2);
+}
+.zrow {
+  display: grid;
+  grid-template-columns: 28px minmax(80px, 1.4fr) 70px 48px minmax(70px, 1fr) 40px;
+  gap: var(--sp-2);
+  align-items: center;
+  background: var(--surface);
+  border-radius: var(--r-md);
+  padding: var(--sp-2);
+}
+.zrow img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+.zname {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zrow input {
+  height: 40px;
+}
+.zunit {
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+@media (max-width: 600px) {
+  .zrow {
+    grid-template-columns: 28px 1fr 40px;
+    grid-template-areas:
+      'img name del'
+      'menge unit info';
+  }
+  .zrow img { grid-area: img; }
+  .zname { grid-area: name; }
+  .zmenge { grid-area: menge; }
+  .zunit { grid-area: unit; align-self: center; }
+  .zinfo { grid-area: info; }
+}
+
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink-soft);
+}
+.icon-btn.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.upload {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1.5px dashed var(--line);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--ink-soft);
+  width: fit-content;
+  height: auto;
+}
+.upload input {
+  display: none;
+}
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+.thumb {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.thumb-del {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--r-full);
+  background: rgba(20, 16, 14, 0.65);
+  color: #fff;
+}
+.thumb-new {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  font-size: var(--fs-xs);
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 2px 6px;
+  border-radius: var(--r-full);
+  font-weight: 700;
+}
+
+.error-line {
+  color: var(--danger);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+.actions {
+  margin-top: var(--sp-3);
+}
+
+.search-in {
+  margin-bottom: var(--sp-3);
+}
+.ing-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--sp-2);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.ing-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  text-align: center;
+}
+.ing-result img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+.ing-result small {
+  color: var(--ink-faint);
+}
+
+.appliance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: var(--sp-2);
+}
+.appliance {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 2px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.appliance.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.appliance img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+</style>

@@ -1,0 +1,258 @@
+/* =====================================================================
+   KOCHBUCH – Basis & gemeinsame Bausteine
+   ===================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+h1 {
+  font-size: var(--fs-h1);
+}
+h2 {
+  font-size: var(--fs-h2);
+}
+h3 {
+  font-size: var(--fs-h3);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+/* --- Scrollbar --- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: var(--r-full);
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-faint);
+}
+
+/* --- Layout-Helfer --- */
+.container {
+  width: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: var(--sp-5) var(--sp-5) var(--sp-8);
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin: var(--sp-7) 0 var(--sp-4);
+}
+.section-title:first-of-type {
+  margin-top: var(--sp-5);
+}
+.section-title h2 {
+  font-size: var(--fs-h2);
+}
+.section-title .eyebrow {
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* --- Buttons --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 48px;
+  padding: 0 var(--sp-5);
+  border: none;
+  border-radius: var(--r-md);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: var(--surface-2);
+  color: var(--ink);
+  transition: transform 0.12s var(--ease), background 0.18s var(--ease),
+    box-shadow 0.18s var(--ease);
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+.btn--accent {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-sm);
+}
+.btn--accent:hover {
+  background: var(--accent-strong);
+}
+.btn--ghost {
+  background: transparent;
+  border: 1.5px solid var(--line);
+}
+.btn--ghost:hover {
+  background: var(--surface-2);
+}
+.btn--block {
+  width: 100%;
+}
+
+/* --- Chips / Tags --- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 34px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.chip i {
+  color: var(--accent);
+  font-size: 0.9em;
+}
+
+/* --- Card-Basis --- */
+.card {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+/* --- Skeleton (Ladezustand) --- */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: var(--r-md);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.35),
+    transparent
+  );
+  animation: shimmer 1.4s infinite;
+}
+html[data-theme='dark'] .skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.06),
+    transparent
+  );
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* --- Eingefuegte Reveal-Animation --- */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.5s var(--ease) both;
+}
+
+/* --- Empty State --- */
+.empty {
+  text-align: center;
+  color: var(--ink-soft);
+  padding: var(--sp-7) var(--sp-4);
+}
+.empty i {
+  font-size: 2.4rem;
+  color: var(--ink-faint);
+  margin-bottom: var(--sp-3);
+  display: block;
+}
+
+/* --- Druck --- */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
