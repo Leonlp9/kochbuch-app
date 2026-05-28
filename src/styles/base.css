@@ -60,6 +60,8 @@ img {
 
 button {
   font-family: inherit;
+  font-size: inherit;
+  color: inherit;
   cursor: pointer;
 }
 
@@ -68,6 +70,7 @@ select,
 textarea {
   font-family: inherit;
   font-size: inherit;
+  color: inherit;
 }
 
 /* Interaktive Elemente: keine Textauswahl (verhindert versehentliches Markieren beim Tippen) */

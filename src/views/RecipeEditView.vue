@@ -16,6 +16,7 @@ import {
   type ServerImage,
 } from '@/services/writeApi'
 import { isOnline } from '@/services/network'
+import { cachedSrc } from '@/services/imageCache'
 import Modal from '@/components/Modal.vue'
 import RichText from '@/components/RichText.vue'
 import type { Kategorie, KitchenAppliance } from '@/types/models'
@@ -367,11 +368,13 @@ async function save() {
         </div>
 
         <div v-for="ing in ingredientsOf(table)" :key="ing.ID + '-' + ing.table" class="zrow">
-          <img :src="ing.Image || ''" :alt="ing.Name" onerror="this.style.visibility='hidden'" />
+          <img :src="cachedSrc(ing.Image) || ''" :alt="ing.Name" onerror="this.style.visibility='hidden'" />
           <span class="zname">{{ ing.Name }}</span>
-          <input v-model.number="ing.Menge" type="number" min="0" step="0.1" class="zmenge" />
-          <span class="zunit">{{ ing.unit }}</span>
-          <input v-model="ing.additionalInfo" placeholder="Info" class="zinfo" />
+          <div class="zinputs">
+            <input v-model.number="ing.Menge" type="number" min="0" step="0.1" class="zmenge" />
+            <span class="zunit">{{ ing.unit }}</span>
+            <input v-model="ing.additionalInfo" placeholder="Info" class="zinfo" />
+          </div>
           <button type="button" class="icon-btn danger" @click="removeIngredient(ing)">
             <i class="fa-solid fa-xmark"></i>
           </button>
@@ -612,7 +615,7 @@ input:focus,
 }
 .zrow {
   display: grid;
-  grid-template-columns: 28px minmax(80px, 1.4fr) 70px 48px minmax(70px, 1fr) 40px;
+  grid-template-columns: 28px minmax(80px, 1.4fr) 1fr 40px;
   gap: var(--sp-2);
   align-items: center;
   background: var(--surface);
@@ -631,25 +634,45 @@ input:focus,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.zrow input {
+/* Inputs-Gruppe Desktop: Menge | Einheit | Zusatzinfo inline */
+.zinputs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.zmenge {
+  flex: 0 0 70px;
+  width: 70px;
   height: 40px;
 }
 .zunit {
+  flex: 0 0 auto;
   font-size: var(--fs-sm);
   color: var(--ink-soft);
+  white-space: nowrap;
+}
+.zinfo {
+  flex: 1 1 0;
+  min-width: 60px;
+  height: 40px;
 }
 @media (max-width: 600px) {
   .zrow {
     grid-template-columns: 28px 1fr 40px;
     grid-template-areas:
       'img name del'
-      'menge unit info';
+      'inputs inputs inputs';
   }
-  .zrow img { grid-area: img; }
-  .zname { grid-area: name; }
-  .zmenge { grid-area: menge; }
-  .zunit { grid-area: unit; align-self: center; }
-  .zinfo { grid-area: info; }
+  .zrow img    { grid-area: img; }
+  .zname       { grid-area: name; }
+  .icon-btn    { grid-area: del; }
+  .zinputs {
+    grid-area: inputs;
+    flex-wrap: nowrap;
+  }
+  .zmenge { flex: 0 0 80px; width: 80px; }
+  .zinfo  { flex: 1 1 0; min-width: 0; }
 }
 
 .icon-btn {

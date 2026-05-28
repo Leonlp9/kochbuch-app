@@ -1,5 +1,9 @@
 <?php
 
+// PHP-Fehler/Warnungen NICHT in den Response-Body ausgeben – würde JSON-Parsing brechen.
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
+
 header('Content-Type: application/json');
 
 // CORS für die App (eigenständig, keine separate Datei nötig).

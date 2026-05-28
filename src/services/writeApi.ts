@@ -8,7 +8,10 @@ async function jsonFetch<T = unknown>(url: string, init?: RequestInit): Promise<
   const text = await res.text()
   let data: unknown
   try {
-    data = text ? JSON.parse(text) : {}
+    // Robustes Parsen: PHP-Warnings/Notices können dem JSON vorangestellt sein
+    const jsonStart = text.indexOf('{') >= 0 ? text.indexOf('{') : text.indexOf('[')
+    const jsonText = jsonStart >= 0 ? text.slice(jsonStart) : text
+    data = jsonText ? JSON.parse(jsonText) : {}
   } catch {
     throw new Error('Ungültige Antwort vom Server')
   }
