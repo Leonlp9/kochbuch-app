@@ -262,7 +262,7 @@ onMounted(async () => {
       <RouterLink to="/search" class="back no-print">
         <i class="fa-solid fa-arrow-left"></i> Zurück
       </RouterLink>
-      <h1 class="title">{{ rezept.Name }}</h1>
+      <h1 class="title allow-select">{{ rezept.Name }}</h1>
 
       <!-- Bilder -->
       <div v-if="rezept.Bilder.length" class="gallery">
@@ -355,7 +355,7 @@ onMounted(async () => {
 
       <!-- Zubereitung -->
       <div class="section-title"><h2>Zubereitung</h2></div>
-      <div class="prose" v-html="rezept.Zubereitung"></div>
+      <div class="prose allow-select" v-html="rezept.Zubereitung"></div>
 
       <!-- Anmerkungen -->
       <div class="section-title">
@@ -367,7 +367,7 @@ onMounted(async () => {
       <div
         v-for="a in rezept.Anmerkungen.filter((x) => x.Anmerkung)"
         :key="a.ID"
-        class="note prose"
+        class="note prose allow-select"
         v-html="decodeAnmerkung(a.Anmerkung)"
       ></div>
       <p v-if="!rezept.Anmerkungen.some((a) => a.Anmerkung)" class="muted">
@@ -394,7 +394,7 @@ onMounted(async () => {
           @click="isOnline && openEditReview(b)"
         >
           <img :src="b.Image" :alt="b.Name" />
-          <div>
+          <div class="allow-select">
             <div class="review-head">
               <strong>{{ b.Name }}</strong>
               <StarRating :value="b.Bewertung" size="0.8rem" />

@@ -210,6 +210,8 @@ async function clearCache() {
   margin-top: 4px;
   font-size: var(--fs-sm);
   color: var(--ink-soft);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .offline {
   display: grid;

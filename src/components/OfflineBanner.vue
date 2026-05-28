@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { isOnline } from '@/services/network'
+import { computed } from 'vue'
+import { isOnline, hasServerConnection } from '@/services/network'
+
+const showOfflineBanner = computed(() => !isOnline.value || !hasServerConnection.value)
+const message = computed(() => {
+  if (!isOnline.value) return 'Offline - du siehst gespeicherte Inhalte'
+  if (!hasServerConnection.value) return 'Server nicht erreichbar - du siehst gespeicherte Inhalte'
+  return ''
+})
 </script>
 
 <template>
   <Transition name="slide">
-    <div v-if="!isOnline" class="offline no-print">
+    <div v-if="showOfflineBanner" class="offline no-print">
       <i class="fa-solid fa-cloud-arrow-down"></i>
-      <span>Offline – du siehst gespeicherte Inhalte</span>
+      <span>{{ message }}</span>
     </div>
   </Transition>
 </template>

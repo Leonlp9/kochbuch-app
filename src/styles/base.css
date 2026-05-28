@@ -12,6 +12,7 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -23,6 +24,9 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overscroll-behavior-y: none;
+  overflow-x: hidden;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 h1,
@@ -68,6 +72,17 @@ textarea {
   font-size: inherit;
 }
 
+input,
+select,
+textarea,
+[contenteditable=''],
+[contenteditable='true'],
+.allow-select,
+.allow-select * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 ::selection {
   background: var(--accent-soft);
   color: var(--accent-strong);
@@ -96,14 +111,19 @@ textarea {
   max-width: var(--container);
   margin: 0 auto;
   padding: var(--sp-5) var(--sp-5) var(--sp-8);
+  overflow-x: clip;
 }
 
 .section-title {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--sp-3);
   margin: var(--sp-7) 0 var(--sp-4);
+}
+.section-title > * {
+  min-width: 0;
 }
 .section-title:first-of-type {
   margin-top: var(--sp-5);

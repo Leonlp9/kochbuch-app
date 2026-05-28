@@ -37,6 +37,17 @@ jobs:
           if [ ! -d "android" ]; then
             npx cap add android
           fi
+
+      - name: App-Icons generieren
+        run: |
+          if [ -f "resources/icon.png" ] || [ -f "resources/icon.jpg" ] || [ -f "resources/icon.jpeg" ] || [ -f "resources/icon.webp" ]; then
+            npx @capacitor/assets generate --android
+          else
+            echo "Kein resources/icon.* gefunden - Standard-Icon bleibt aktiv."
+          fi
+
+      - name: Android-Projekt synchronisieren
+        run: |
           npx cap sync android
 
       - name: APK bauen (debug)

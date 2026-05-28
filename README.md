@@ -81,6 +81,17 @@ git push -u origin main
 > Es ist eine **Debug-APK** – perfekt zum Sideloaden in der Familie. Für eine
 > signierte Release-Version müsste man später einen Keystore ergänzen.
 
+### App-Icon fuer Android
+
+- Lege dein App-Icon als `resources/icon.png` ab.
+- Empfohlen: **1024 × 1024 px**, quadratisch, ohne Transparenz-Rand.
+- Der GitHub-Workflow generiert daraus beim APK-Build automatisch die Android-Launcher-Icons.
+- Lokal kannst du die Generierung auch selbst starten mit:
+
+```bash
+npm run assets:android
+```
+
 ---
 
 ## 5. Was die App kann
