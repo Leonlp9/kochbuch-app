@@ -1,6 +1,6 @@
 {
   "name": "kochbuch-app",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "description": "Kochbuch – offline-faehige PWA/Android-App (Capacitor + Vue 3 + TypeScript)",
