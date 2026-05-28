@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import NavBar from '@/components/NavBar.vue'
 import OfflineBanner from '@/components/OfflineBanner.vue'
+import AiChat from '@/components/AiChat.vue'
 import { checkForUpdate, updateReady, applyUpdate } from '@/services/updater'
 
 onMounted(() => {
@@ -33,6 +34,7 @@ onMounted(() => {
         </Transition>
       </RouterView>
     </main>
+    <AiChat />
   </div>
 </template>
 

@@ -14,10 +14,12 @@ import {
   getImages,
   deleteImage,
   analyzeRecipeWithAI,
+  generateRecipeImage,
   type ServerImage,
 } from '@/services/writeApi'
 import { isOnline } from '@/services/network'
 import { cachedSrc } from '@/services/imageCache'
+import { mediaUrl } from '@/config'
 import Modal from '@/components/Modal.vue'
 import RichText from '@/components/RichText.vue'
 import type { Kategorie, KitchenAppliance } from '@/types/models'
@@ -102,8 +104,56 @@ onMounted(async () => {
     allKnownIngredients.value = await searchZutaten('')
   } catch { /* ignore */ }
 
-  if (isEdit.value && props.id) {
+  // KI-Entwurf aus Chat übernehmen (gesetzt von AiChat wenn Nutzer "Rezept anlegen" klickt)
+  const rawDraft = localStorage.getItem('kochbuch_ai_draft')
+  if (rawDraft && !isEdit.value) {
     try {
+      const draft = JSON.parse(rawDraft)
+      localStorage.removeItem('kochbuch_ai_draft')
+      // Felder befüllen wie nach KI-Analyse
+      name.value = draft.recipe_name || ''
+      dauer.value = draft.prep_time_minutes || 30
+      portionen.value = draft.portions || 4
+      anleitung.value = draft.instructions || ''
+      if (draft.category_id && kategorien.value.some((k: { ID: number }) => k.ID === draft.category_id)) {
+        kategorieId.value = String(draft.category_id)
+      }
+      if (draft.kitchen_appliance_ids?.length) {
+        selectedAppliances.value = allAppliances.value.filter((a) =>
+          draft.kitchen_appliance_ids.includes(a.ID),
+        )
+      }
+      if (draft.optional_infos?.length) {
+        optInfos.value = draft.optional_infos
+      }
+      const newTables: string[] = []
+      const newIngredients: EditIngredient[] = []
+      for (const tbl of draft.ingredient_tables || []) {
+        const tableName = tbl.table_name ?? ''
+        if (!newTables.includes(tableName)) newTables.push(tableName)
+        for (const ing of tbl.ingredients || []) {
+          const known = allKnownIngredients.value.find((z) => z.ID === ing.ingredient_id)
+          newIngredients.push({
+            ID: ing.ingredient_id || 0,
+            Menge: ing.quantity || 0,
+            unit: ing.unit || '',
+            Name: ing.ingredient_name || '',
+            Image: known?.Image || '',
+            additionalInfo: ing.additional_info || '',
+            table: tableName,
+          })
+        }
+      }
+      tables.value = newTables.length ? newTables : ['']
+      ingredients.value = newIngredients
+      aiFilledForm.value = true
+      editMode.value = 'form'
+      loading.value = false
+      return
+    } catch { /* fehlerhafter Draft – ignorieren */ }
+  }
+
+  if (isEdit.value && props.id) {    try {
       const { data } = await getRezept(props.id)
       name.value = data.Name
       kategorieId.value = String(data.Kategorie_ID)
@@ -157,7 +207,7 @@ function onAiFilePicked(e: Event) {
 async function startAiAnalysis() {
   if (!aiFile.value) return
   aiError.value = ''
-  aiProgress.value = 'Datei wird analysiertâ€¦'
+  aiProgress.value = 'Datei wird analysiert…'
   editMode.value = 'ai-analyzing'
 
   try {
@@ -311,8 +361,79 @@ async function removeExistingImage(img: ServerImage) {
     await deleteImage(props.id, img.ID)
     existingImages.value = existingImages.value.filter((x) => x.ID !== img.ID)
   } catch {
-    errorMsg.value = 'Bild konnte nicht gelÃ¶scht werden'
+    errorMsg.value = 'Bild konnte nicht gelöscht werden'
   }
+}
+
+// --- KI-Bildgenerierung ---
+const showAiImageModal    = ref(false)
+const aiImgMode           = ref<'text' | 'image'>('text')
+const aiImgRefFile        = ref<File | null>(null)
+const aiImgRefPreview     = ref('')
+const aiImgGenerating     = ref(false)
+const aiImgError          = ref('')
+const aiImgResult         = ref<string | null>(null)  // base64
+const aiImgMime           = ref('image/png')
+
+function openAiImageModal() {
+  aiImgMode.value = 'text'
+  aiImgRefFile.value = null
+  aiImgRefPreview.value = ''
+  aiImgError.value = ''
+  aiImgResult.value = null
+  showAiImageModal.value = true
+}
+
+function onAiImgRefPicked(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (!input.files?.length) return
+  const f = input.files[0]
+  aiImgRefFile.value = f
+  aiImgRefPreview.value = URL.createObjectURL(f)
+  input.value = ''
+}
+
+async function runAiImageGeneration() {
+  aiImgError.value = ''
+  aiImgResult.value = null
+  aiImgGenerating.value = true
+
+  // Kurze Rezeptbeschreibung für den Prompt aufbauen
+  const topIngredients = ingredients.value
+    .slice(0, 8)
+    .map((z) => `${z.Menge ? z.Menge + ' ' + z.unit + ' ' : ''}${z.Name}`)
+    .join(', ')
+
+  try {
+    const res = await generateRecipeImage(
+      name.value || 'Gericht',
+      topIngredients,
+      aiImgMode.value,
+      aiImgMode.value === 'image' ? aiImgRefFile.value : null,
+    )
+    if (!res.success || !res.image_data) throw new Error(res.error || 'Kein Bild erhalten')
+    aiImgResult.value = res.image_data
+    aiImgMime.value = res.mime_type || 'image/png'
+  } catch (e) {
+    aiImgError.value = e instanceof Error ? e.message : 'Fehler bei der Bildgenerierung'
+  } finally {
+    aiImgGenerating.value = false
+  }
+}
+
+function useAiImage() {
+  if (!aiImgResult.value) return
+  // base64 → Blob → File
+  const binary = atob(aiImgResult.value)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const blob = new Blob([bytes], { type: aiImgMime.value })
+  const ext  = aiImgMime.value.split('/')[1] || 'png'
+  const file = new File([blob], `ki-bild.${ext}`, { type: aiImgMime.value })
+  newFiles.value.push(file)
+  newPreviews.value.push(URL.createObjectURL(blob))
+  showAiImageModal.value = false
+  aiImgResult.value = null
 }
 
 // --- Speichern ---
@@ -369,7 +490,7 @@ async function save() {
 
     <!-- â”€â”€ Schritt 1: Modus wählen â”€â”€ -->
     <div v-else-if="editMode === 'choose'" class="mode-choose">
-      <p class="mode-hint">Wie mÃ¶chtest du das Rezept anlegen?</p>
+      <p class="mode-hint">Wie möchtest du das Rezept anlegen?</p>
       <div class="mode-cards">
         <button class="mode-card" @click="editMode = 'manual'">
           <i class="fa-solid fa-pen-to-square mode-icon"></i>
@@ -547,17 +668,22 @@ async function save() {
 
       <!-- Zubereitung -->
       <h2 class="sec">Zubereitung</h2>
-      <RichText v-model="anleitung" placeholder="Schritt für Schrittâ€¦" />
+      <RichText v-model="anleitung" placeholder="Schritt für Schritt…" />
 
       <!-- Bilder -->
       <h2 class="sec">Bilder</h2>
-      <label class="upload">
-        <i class="fa-solid fa-upload"></i> Bilder auswählen
-        <input type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFilesPicked" />
-      </label>
+      <div class="upload-row">
+        <label class="upload">
+          <i class="fa-solid fa-upload"></i> Bilder ausw&auml;hlen
+          <input type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFilesPicked" />
+        </label>
+        <button type="button" class="btn btn--ghost ai-img-btn" @click="openAiImageModal">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> KI-Bild generieren
+        </button>
+      </div>
       <div v-if="newPreviews.length || existingImages.length" class="thumbs">
         <div v-for="img in existingImages" :key="'e' + img.ID" class="thumb">
-          <img :src="img.Image.startsWith('http') ? img.Image : ''" alt="" />
+          <img :src="mediaUrl(img.Image)" alt="" />
           <button type="button" class="thumb-del" @click="removeExistingImage(img)">
             <i class="fa-solid fa-trash"></i>
           </button>
@@ -577,14 +703,14 @@ async function save() {
         <button type="submit" class="btn btn--accent btn--block" :disabled="saving || !isOnline">
           <i v-if="saving" class="fa-solid fa-spinner fa-spin"></i>
           <i v-else class="fa-solid fa-floppy-disk"></i>
-          {{ saving ? 'Speichernâ€¦' : isEdit ? 'Speichern' : 'Rezept anlegen' }}
+          {{ saving ? 'Speichern…' : isEdit ? 'Speichern' : 'Rezept anlegen' }}
         </button>
       </div>
     </form>
 
     <!-- Modal: Zutat suchen -->
     <Modal v-if="showIngredientSearch" title="Zutat hinzufügen" @close="showIngredientSearch = false">
-      <input v-model="ingredientQuery" class="search-in" placeholder="Zutat suchenâ€¦" @input="runIngredientSearch" />
+      <input v-model="ingredientQuery" class="search-in" placeholder="Zutat suchen…" @input="runIngredientSearch" />
       <div class="ing-results">
         <button
           v-for="z in ingredientResults"
@@ -624,7 +750,7 @@ async function save() {
     </Modal>
 
     <!-- Modal: Geräte -->
-    <Modal v-if="showAppliancePicker" title="Küchengeräte" @close="showAppliancePicker = false">
+    <Modal v-if="showAppliancePicker" title="K&uuml;chenger&auml;te" @close="showAppliancePicker = false">
       <div class="appliance-grid">
         <button
           v-for="a in allAppliances"
@@ -640,6 +766,88 @@ async function save() {
       </div>
       <template #footer>
         <button class="btn btn--accent" @click="showAppliancePicker = false">Fertig</button>
+      </template>
+    </Modal>
+
+    <!-- Modal: KI-Bild generieren -->
+    <Modal v-if="showAiImageModal" title="KI-Bild generieren" @close="showAiImageModal = false">
+      <!-- Modus-Auswahl -->
+      <div v-if="!aiImgResult" class="ai-img-modes">
+        <button
+          class="ai-img-mode-btn"
+          :class="{ active: aiImgMode === 'text' }"
+          type="button"
+          @click="aiImgMode = 'text'; aiImgRefFile = null; aiImgRefPreview = ''"
+        >
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+          <span>Nur vom Rezept</span>
+          <small>Bild wird anhand von Name und Zutaten generiert</small>
+        </button>
+        <button
+          class="ai-img-mode-btn"
+          :class="{ active: aiImgMode === 'image' }"
+          type="button"
+          @click="aiImgMode = 'image'"
+        >
+          <i class="fa-solid fa-image"></i>
+          <span>Eigenes Bild verbessern</span>
+          <small>Lade ein Referenzbild hoch, die KI inszeniert es neu</small>
+        </button>
+      </div>
+
+      <!-- Referenzbild hochladen -->
+      <div v-if="aiImgMode === 'image' && !aiImgResult" class="ai-img-ref-wrap">
+        <label class="ai-img-ref-drop" :class="{ 'has-file': !!aiImgRefFile }">
+          <template v-if="!aiImgRefFile">
+            <i class="fa-solid fa-image"></i>
+            <span>Referenzbild ausw&auml;hlen</span>
+            <small>JPG, PNG oder WEBP &middot; max. 10 MB</small>
+          </template>
+          <template v-else>
+            <img :src="aiImgRefPreview" class="ai-img-ref-preview" alt="Vorschau" />
+          </template>
+          <input type="file" accept="image/png,image/jpeg,image/webp" @change="onAiImgRefPicked" />
+        </label>
+      </div>
+
+      <!-- Generierungs-Loader -->
+      <div v-if="aiImgGenerating" class="ai-img-loading">
+        <i class="fa-solid fa-spinner fa-spin ai-img-spinner"></i>
+        <p>Gemini generiert dein Kochbuch-Foto&hellip;</p>
+        <small>Das dauert etwa 15&ndash;40 Sekunden.</small>
+      </div>
+
+      <!-- Ergebnis -->
+      <div v-if="aiImgResult && !aiImgGenerating" class="ai-img-result">
+        <img :src="'data:' + aiImgMime + ';base64,' + aiImgResult" alt="Generiertes Bild" class="ai-img-preview" />
+        <p class="ai-img-result-hint">
+          <i class="fa-solid fa-circle-check"></i>
+          Bild wurde generiert. &Uuml;bernehmen oder neu generieren?
+        </p>
+      </div>
+
+      <p v-if="aiImgError" class="error-line">
+        <i class="fa-solid fa-triangle-exclamation"></i> {{ aiImgError }}
+      </p>
+
+      <template #footer>
+        <button class="btn btn--ghost" @click="showAiImageModal = false">Abbrechen</button>
+        <button
+          v-if="!aiImgResult"
+          class="btn btn--accent"
+          :disabled="aiImgGenerating || (aiImgMode === 'image' && !aiImgRefFile)"
+          @click="runAiImageGeneration"
+        >
+          <i v-if="aiImgGenerating" class="fa-solid fa-spinner fa-spin"></i>
+          <i v-else class="fa-solid fa-wand-magic-sparkles"></i>
+          {{ aiImgGenerating ? 'Generiert&hellip;' : 'Generieren' }}
+        </button>
+        <button v-if="aiImgResult && !aiImgGenerating" class="btn btn--ghost" @click="runAiImageGeneration">
+          <i class="fa-solid fa-rotate-right"></i> Neu generieren
+        </button>
+        <button v-if="aiImgResult && !aiImgGenerating" class="btn btn--accent" @click="useAiImage">
+          <i class="fa-solid fa-check"></i> Bild verwenden
+        </button>
       </template>
     </Modal>
   </div>
@@ -821,6 +1029,108 @@ input:focus, .select:focus { border-color: var(--accent); }
 }
 .icon-btn { width: 40px; height: 40px; border: none; border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-soft); }
 .icon-btn.danger:hover { background: var(--danger-soft); color: var(--danger); }
+.upload-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+.ai-img-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--accent);
+  border-color: var(--accent);
+  height: auto;
+  padding: var(--sp-3) var(--sp-4);
+}
+/* KI-Bild-Modal */
+.ai-img-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+@media (max-width: 480px) { .ai-img-modes { grid-template-columns: 1fr; } }
+.ai-img-mode-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 2px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ai-img-mode-btn i { font-size: 1.8rem; color: var(--accent); }
+.ai-img-mode-btn span { font-weight: 700; font-size: var(--fs-sm); color: var(--ink); }
+.ai-img-mode-btn small { font-size: var(--fs-xs); color: var(--ink-soft); }
+.ai-img-mode-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ai-img-mode-btn.active { border-color: var(--accent); background: var(--accent-soft); }
+.ai-img-ref-wrap { margin-bottom: var(--sp-3); }
+.ai-img-ref-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-5);
+  border: 2px dashed var(--line);
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  text-align: center;
+  min-height: 140px;
+  background: var(--surface-2);
+  transition: border-color 0.15s;
+}
+.ai-img-ref-drop:hover { border-color: var(--accent); }
+.ai-img-ref-drop.has-file { border-style: solid; border-color: var(--accent); padding: var(--sp-2); }
+.ai-img-ref-drop input { display: none; }
+.ai-img-ref-drop i { font-size: 2rem; color: var(--ink-faint); }
+.ai-img-ref-drop span { font-weight: 600; font-size: var(--fs-sm); color: var(--ink); }
+.ai-img-ref-drop small { font-size: var(--fs-xs); color: var(--ink-faint); }
+.ai-img-ref-preview {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: var(--r-md);
+  object-fit: contain;
+}
+.ai-img-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-6);
+  text-align: center;
+}
+.ai-img-spinner { font-size: 2.5rem; color: var(--accent); }
+.ai-img-loading p { font-weight: 600; font-size: var(--fs-sm); margin: 0; }
+.ai-img-loading small { font-size: var(--fs-xs); color: var(--ink-soft); }
+.ai-img-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.ai-img-preview {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+}
+.ai-img-result-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--accent-strong);
+  font-weight: 600;
+  margin: 0;
+}
 .upload {
   display: inline-flex;
   align-items: center;

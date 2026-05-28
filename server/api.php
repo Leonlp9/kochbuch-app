@@ -1037,6 +1037,368 @@ switch ($task) {
             echo json_encode(['error' => 'Not all parameters provided', 'success' => false]);
             die();
         }
+    case 'geminiGenerateImage':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            echo json_encode(['error' => 'POST required', 'success' => false]);
+            die();
+        }
+
+        $imgIni   = parse_ini_file('config.ini');
+        $imgToken = $imgIni['gemini_token'] ?? '';
+        if (!$imgToken) {
+            echo json_encode(['error' => 'Kein Gemini-Token', 'success' => false]);
+            die();
+        }
+
+        $imgName = trim($_POST['recipe_name'] ?? '');
+        $imgDesc = trim($_POST['recipe_description'] ?? '');
+        $imgMode = $_POST['mode'] ?? 'text'; // 'text' | 'image'
+
+        if (!$imgName) {
+            echo json_encode(['error' => 'Kein Rezeptname angegeben', 'success' => false]);
+            die();
+        }
+
+        // Konsistenter Kochbuch-Fotografie-Stil fuer alle generierten Bilder
+        $styleGuide =
+            "Professional cookbook food photography style consistent across all images. " .
+            "Three-quarter overhead angle at exactly 45 degrees. " .
+            "Soft diffused natural window light entering from the upper-left, creating gentle shadows. " .
+            "Warm, golden-hour color temperature (approx 5500K). " .
+            "Matte ceramic or earthenware plate on a dark slate or aged oak wooden surface. " .
+            "Shallow depth of field, soft bokeh in the background. " .
+            "A small scattering of key ingredients and fresh herbs as props around the plate. " .
+            "Rich, saturated, appetizing colors. Clean uncluttered composition. " .
+            "Shot as if with a 85mm prime lens. Magazine-quality, Michelin-star restaurant aesthetic.";
+
+        $parts = [];
+
+        if ($imgMode === 'image' && isset($_FILES['reference_image']) && $_FILES['reference_image']['error'] === 0) {
+            // Bild-zu-Bild: Referenzbild verbessern und inszenieren
+            $refFile = $_FILES['reference_image'];
+            if ($refFile['size'] > 10 * 1024 * 1024) {
+                echo json_encode(['error' => 'Referenzbild zu gross (max. 10 MB)', 'success' => false]);
+                die();
+            }
+            $finfo   = finfo_open(FILEINFO_MIME_TYPE);
+            $refMime = finfo_file($finfo, $refFile['tmp_name']);
+            finfo_close($finfo);
+
+            $parts[] = ['inlineData' => [
+                'mimeType' => $refMime,
+                'data'     => base64_encode(file_get_contents($refFile['tmp_name']))
+            ]];
+
+            $imgPrompt =
+                "Restage and enhance this dish for a high-end cookbook. " .
+                "The dish is '{$imgName}'" . ($imgDesc ? " ({$imgDesc})" : '') . ". " .
+                "Keep the exact same food and dish but completely transform the presentation, plating, " .
+                "lighting, surface, and background to match this style. " .
+                $styleGuide;
+        } else {
+            // Text-zu-Bild: vollstaendig aus Rezeptdaten generieren
+            $descFragment = $imgDesc ? " The dish contains: " . substr($imgDesc, 0, 400) . "." : '';
+
+            $imgPrompt =
+                "Generate a professional cookbook photo of the dish '{$imgName}'.{$descFragment} " .
+                "The dish is beautifully plated, perfectly portioned and garnished. " .
+                $styleGuide;
+        }
+
+        $parts[] = ['text' => $imgPrompt];
+
+        $imgPayload = [
+            'contents'         => [['parts' => $parts]],
+            'generationConfig' => [
+                'response_modalities' => ['IMAGE']
+            ]
+        ];
+
+        $chImg  = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent');
+        curl_setopt($chImg, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($chImg, CURLOPT_POST, true);
+        curl_setopt($chImg, CURLOPT_POSTFIELDS, json_encode($imgPayload));
+        curl_setopt($chImg, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'x-goog-api-key: ' . $imgToken
+        ]);
+        curl_setopt($chImg, CURLOPT_TIMEOUT, 120);
+
+        $imgRaw  = curl_exec($chImg);
+        $imgCode = curl_getinfo($chImg, CURLINFO_HTTP_CODE);
+        $imgErr  = curl_error($chImg);
+        curl_close($chImg);
+
+        if ($imgRaw === false || $imgErr) {
+            echo json_encode(['error' => 'Gemini nicht erreichbar: ' . $imgErr, 'success' => false]);
+            die();
+        }
+
+        $imgResp = json_decode($imgRaw, true);
+        if ($imgCode !== 200) {
+            $imgErrMsg = $imgResp['error']['message'] ?? 'HTTP ' . $imgCode;
+            echo json_encode(['error' => 'Gemini Fehler: ' . $imgErrMsg, 'success' => false]);
+            die();
+        }
+
+        // Bild-Part aus der Antwort extrahieren (Thought-Parts ueberspringen)
+        $imgBase64 = null;
+        $imgMimeOut = 'image/png';
+        $debugParts = [];
+        foreach ($imgResp['candidates'] ?? [] as $cand) {
+            foreach ($cand['content']['parts'] ?? [] as $part) {
+                $debugParts[] = array_keys($part); // fuer Debugging merken
+                if (!empty($part['thought'])) continue;
+                if (isset($part['inlineData'])) {
+                    $imgBase64  = $part['inlineData']['data'];
+                    $imgMimeOut = $part['inlineData']['mimeType'] ?? 'image/png';
+                    break 2;
+                }
+            }
+        }
+
+        if (!$imgBase64) {
+            $fullText = '';
+            foreach ($imgResp['candidates'] ?? [] as $cand) {
+                $finishReason = $cand['finishReason'] ?? 'unknown';
+                foreach ($cand['content']['parts'] ?? [] as $part) {
+                    if (!empty($part['text'])) $fullText .= $part['text'];
+                }
+            }
+            // Debug: Rohstruktur ausgeben damit der Fehler klar wird
+            echo json_encode([
+                'error'        => 'Kein Bild generiert.' . ($fullText ? ' Modell-Antwort: ' . substr($fullText, 0, 300) : ''),
+                'success'      => false,
+                'debug_keys'   => $debugParts,
+                'debug_finish' => $finishReason ?? null,
+                'debug_cands'  => count($imgResp['candidates'] ?? [])
+            ]);
+            die();
+        }
+
+        echo json_encode(['success' => true, 'image_data' => $imgBase64, 'mime_type' => $imgMimeOut]);
+        die();
+
+    case 'geminiChat':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            echo json_encode(['error' => 'POST required', 'success' => false]);
+            die();
+        }
+
+        $iniData2 = parse_ini_file('config.ini');
+        $geminiToken2 = $iniData2['gemini_token'] ?? '';
+        if (!$geminiToken2) {
+            echo json_encode(['error' => 'Kein Gemini-Token in config.ini', 'success' => false]);
+            die();
+        }
+
+        $chatBody   = json_decode(file_get_contents('php://input'), true);
+        $chatMsg    = trim($chatBody['message'] ?? '');
+        $chatHist   = $chatBody['history']   ?? [];
+        $chatRid    = $chatBody['recipe_id'] ?? null;
+
+        if (!$chatMsg) {
+            echo json_encode(['error' => 'Keine Nachricht', 'success' => false]);
+            die();
+        }
+
+        // Alle Rezepte (kompakt)
+        $allRezepte = $pdo->query("
+            SELECT r.ID, r.Name, k.Name AS Kategorie, r.Zeit
+            FROM rezepte r
+            LEFT JOIN kategorien k ON r.Kategorie_ID = k.ID
+            ORDER BY r.last_visit DESC, r.Name
+            LIMIT 200
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $rezepteLines = array_map(function($r) {
+            return "ID={$r['ID']}: {$r['Name']} (Kategorie: {$r['Kategorie']}, Zeit: {$r['Zeit']}min)";
+        }, $allRezepte);
+        $rezepteText = implode("\n", $rezepteLines);
+
+        // Kontext fuer aktuell geoeffnetes Rezept
+        $currentRecipeCtx = '';
+        if ($chatRid) {
+            $rStmt = $pdo->prepare("SELECT r.*, k.Name AS KatName FROM rezepte r LEFT JOIN kategorien k ON r.Kategorie_ID = k.ID WHERE r.ID = ?");
+            $rStmt->execute([(int)$chatRid]);
+            $rRow = $rStmt->fetch(PDO::FETCH_ASSOC);
+            if ($rRow) {
+                $zArr = json_decode($rRow['Zutaten_JSON'], true) ?? [];
+                $zNames = [];
+                foreach ($zArr as $z) {
+                    $zStmt = $pdo->prepare("SELECT Name, unit FROM zutaten WHERE ID = ?");
+                    $zStmt->execute([$z['ID']]);
+                    $zRow2 = $zStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($zRow2) {
+                        $zNames[] = "{$z['Menge']} {$zRow2['unit']} {$zRow2['Name']}" .
+                            (!empty($z['additionalInfo']) ? " ({$z['additionalInfo']})" : '');
+                    }
+                }
+                $currentRecipeCtx = "\n\nAKTUELL GEOEFFNETES REZEPT:\n" .
+                    "Name: {$rRow['Name']}\n" .
+                    "Kategorie: {$rRow['KatName']}\n" .
+                    "Zeit: {$rRow['Zeit']} Min, Portionen: {$rRow['Portionen']}\n" .
+                    "Zutaten: " . implode(', ', $zNames) . "\n" .
+                    "Zubereitung: " . substr(strip_tags($rRow['Zubereitung']), 0, 800);
+            }
+        }
+
+        // Zutaten / Kategorien / Geraete fuer Rezeptentwuerfe
+        $chatZutaten    = $pdo->query("SELECT ID, Name, unit FROM zutaten ORDER BY Name")->fetchAll(PDO::FETCH_ASSOC);
+        $chatKategorien = $pdo->query("SELECT ID, Name FROM kategorien ORDER BY Name")->fetchAll(PDO::FETCH_ASSOC);
+        $chatGeraete    = $pdo->query("SELECT ID, Name FROM kitchenAppliances ORDER BY Name")->fetchAll(PDO::FETCH_ASSOC);
+
+        $chatZutatenLines = array_map(fn($z) => "ID={$z['ID']}: {$z['Name']} ({$z['unit']})", $chatZutaten);
+
+        $systemPrompt2 =
+            "Du bist ein freundlicher Kochassistent fuer eine Kochbuch-App.\n\n" .
+            "REZEPTE IN DER APP:\n" . $rezepteText .
+            $currentRecipeCtx . "\n\n" .
+            "VERFUEGBARE ZUTATEN-DB (fuer Rezeptentwuerfe):\n" .
+            implode("\n", array_slice($chatZutatenLines, 0, 150)) . "\n\n" .
+            "VERFUEGBARE KATEGORIEN: " . json_encode($chatKategorien, JSON_UNESCAPED_UNICODE) . "\n" .
+            "VERFUEGBARE KUECHENGERAETE: " . json_encode($chatGeraete, JSON_UNESCAPED_UNICODE) . "\n\n" .
+            "REGELN:\n" .
+            "- Antworte IMMER auf Deutsch.\n" .
+            "- Formatiere Antworten als HTML: <p>, <strong>, <ul><li>, <ol><li>.\n" .
+            "- recipe_links: Fuege IDs + Namen hinzu wenn du auf Rezepte aus der App hinweist.\n" .
+            "- has_draft=true und recipe_draft befuellen: NUR wenn der Nutzer EXPLIZIT ein neues Rezept erstellen moechte oder fragt.\n" .
+            "- Bei recipe_draft: Zutaten den IDs aus der Zutaten-DB zuordnen (ingredient_id=0 wenn unbekannt).\n" .
+            "- Ansonsten has_draft=false und recipe_draft weglassen.\n" .
+            "- Tipp-Funktion: Schlage aehnliche Rezepte vor, beantworte Kochfragen, gib Tipps.";
+
+        // Antwort-Schema
+        $chatSchema = [
+            'type' => 'object',
+            'properties' => [
+                'message' => ['type' => 'string', 'description' => 'Die Antwort als HTML. Verwende <p>, <strong>, <ul><li>, <ol><li>.'],
+                'recipe_links' => [
+                    'type' => 'array',
+                    'description' => 'Maximal 5 relevante Rezepte aus der App. Leer wenn keine. Nur die Top-5 passendsten.',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'id'   => ['type' => 'integer'],
+                            'name' => ['type' => 'string']
+                        ],
+                        'required' => ['id', 'name']
+                    ]
+                ],
+                'has_draft' => ['type' => 'boolean', 'description' => 'true wenn ein Rezeptentwurf erstellt werden soll'],
+                'recipe_draft' => [
+                    'type' => 'object',
+                    'description' => 'Nur befuellen wenn has_draft=true.',
+                    'properties' => [
+                        'recipe_name'           => ['type' => 'string'],
+                        'category_id'           => ['type' => 'integer'],
+                        'prep_time_minutes'     => ['type' => 'integer'],
+                        'portions'              => ['type' => 'integer'],
+                        'instructions'          => ['type' => 'string', 'description' => 'Als HTML mit <ol><li>'],
+                        'kitchen_appliance_ids' => ['type' => 'array', 'items' => ['type' => 'integer']],
+                        'optional_infos'        => [
+                            'type'  => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'title'   => ['type' => 'string'],
+                                    'content' => ['type' => 'string']
+                                ],
+                                'required' => ['title', 'content']
+                            ]
+                        ],
+                        'ingredient_tables' => [
+                            'type'  => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'table_name'  => ['type' => 'string'],
+                                    'ingredients' => [
+                                        'type'  => 'array',
+                                        'items' => [
+                                            'type' => 'object',
+                                            'properties' => [
+                                                'ingredient_id'   => ['type' => 'integer'],
+                                                'ingredient_name' => ['type' => 'string'],
+                                                'quantity'        => ['type' => 'number'],
+                                                'unit'            => ['type' => 'string'],
+                                                'additional_info' => ['type' => 'string']
+                                            ],
+                                            'required' => ['ingredient_id', 'ingredient_name', 'quantity', 'unit', 'additional_info']
+                                        ]
+                                    ]
+                                ],
+                                'required' => ['table_name', 'ingredients']
+                            ]
+                        ]
+                    ],
+                    'required' => ['recipe_name', 'category_id', 'prep_time_minutes', 'portions', 'instructions', 'kitchen_appliance_ids', 'optional_infos', 'ingredient_tables']
+                ]
+            ],
+            'required' => ['message', 'recipe_links', 'has_draft']
+        ];
+
+        // Verlauf aufbauen
+        $chatContents = [];
+        foreach (array_slice($chatHist, -14) as $h) {
+            $hRole = ($h['role'] === 'model') ? 'model' : 'user';
+            $chatContents[] = ['role' => $hRole, 'parts' => [['text' => $h['content']]]];
+        }
+        $chatContents[] = ['role' => 'user', 'parts' => [['text' => $chatMsg]]];
+
+        $chatPayload = [
+            'system_instruction' => ['parts' => [['text' => $systemPrompt2]]],
+            'contents'           => $chatContents,
+            'generationConfig'   => [
+                'response_mime_type' => 'application/json',
+                'response_schema'    => $chatSchema
+            ]
+        ];
+
+        $chC = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
+        curl_setopt($chC, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($chC, CURLOPT_POST, true);
+        curl_setopt($chC, CURLOPT_POSTFIELDS, json_encode($chatPayload, JSON_UNESCAPED_UNICODE));
+        curl_setopt($chC, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json; charset=utf-8',
+            'x-goog-api-key: ' . $geminiToken2
+        ]);
+        curl_setopt($chC, CURLOPT_TIMEOUT, 60);
+        $chatRaw    = curl_exec($chC);
+        $chatCode   = curl_getinfo($chC, CURLINFO_HTTP_CODE);
+        $chatErr    = curl_error($chC);
+        curl_close($chC);
+
+        if ($chatRaw === false || $chatErr) {
+            echo json_encode(['error' => 'Gemini nicht erreichbar: ' . $chatErr, 'success' => false]);
+            die();
+        }
+
+        $chatGemini = json_decode($chatRaw, true);
+        if ($chatCode !== 200) {
+            $chatErrMsg = $chatGemini['error']['message'] ?? ('HTTP ' . $chatCode);
+            echo json_encode(['error' => 'Gemini Fehler: ' . $chatErrMsg, 'success' => false]);
+            die();
+        }
+
+        $chatText = $chatGemini['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        $chatText = preg_replace('/^```json\s*/i', '', trim($chatText));
+        $chatText = preg_replace('/```\s*$/', '', $chatText);
+        $chatReply = json_decode(trim($chatText), true);
+
+        if (!$chatReply) {
+            echo json_encode(['error' => 'Ungueltige KI-Antwort', 'success' => false]);
+            die();
+        }
+
+        // Sicherstellen dass recipe_links ein Array ist und max. 5 Einträge hat
+        if (!isset($chatReply['recipe_links']) || !is_array($chatReply['recipe_links'])) {
+            $chatReply['recipe_links'] = [];
+        }
+        $chatReply['recipe_links'] = array_slice($chatReply['recipe_links'], 0, 5);
+
+        echo json_encode(['success' => true, 'reply' => $chatReply]);
+        die();
+
     case 'geminiAnalyzeRecipe':
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_FILES['file'])) {
             echo json_encode(['error' => 'POST mit Datei erforderlich', 'success' => false]);

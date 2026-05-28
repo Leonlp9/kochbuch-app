@@ -9,7 +9,8 @@ async function jsonFetch<T = unknown>(url: string, init?: RequestInit): Promise<
   let data: unknown
   try {
     // Robustes Parsen: PHP-Warnings/Notices können dem JSON vorangestellt sein
-    const jsonStart = text.indexOf('{') >= 0 ? text.indexOf('{') : text.indexOf('[')
+    // search() findet das erste '{' oder '[', egal welches zuerst kommt
+    const jsonStart = text.search(/[{[]/)
     const jsonText = jsonStart >= 0 ? text.slice(jsonStart) : text
     data = jsonText ? JSON.parse(jsonText) : {}
   } catch {
@@ -173,5 +174,58 @@ export async function analyzeRecipeWithAI(file: File): Promise<AIAnalysisRespons
   const fd = new FormData()
   fd.append('file', file)
   return jsonFetch<AIAnalysisResponse>(apiUrl('geminiAnalyzeRecipe'), { method: 'POST', body: fd })
+}
+
+// ---------- KI-Bildgenerierung (Modell: gemini-2.5-flash-image) ----------
+export interface GeneratedImageResponse {
+  success: boolean
+  image_data?: string   // base64
+  mime_type?: string
+  error?: string
+}
+
+export async function generateRecipeImage(
+  recipeName: string,
+  recipeDescription: string,
+  mode: 'text' | 'image',
+  referenceImage?: File | null,
+): Promise<GeneratedImageResponse> {
+  const fd = new FormData()
+  fd.append('recipe_name', recipeName)
+  fd.append('recipe_description', recipeDescription)
+  fd.append('mode', mode)
+  if (mode === 'image' && referenceImage) fd.append('reference_image', referenceImage)
+  return jsonFetch<GeneratedImageResponse>(apiUrl('geminiGenerateImage'), { method: 'POST', body: fd })
+}
+
+// ---------- KI-Chat ----------
+export interface ChatHistoryItem {
+  role: 'user' | 'model'
+  content: string
+}
+
+export interface ChatReply {
+  message: string
+  recipe_links: { id: number; name: string }[]
+  has_draft: boolean
+  recipe_draft?: AIRecipeResult
+}
+
+export interface ChatResponse {
+  success: boolean
+  reply?: ChatReply
+  error?: string
+}
+
+export function sendChatMessage(
+  message: string,
+  history: ChatHistoryItem[],
+  recipeId?: number | string | null,
+): Promise<ChatResponse> {
+  return jsonFetch<ChatResponse>(apiUrl('geminiChat'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history, recipe_id: recipeId ?? null }),
+  })
 }
 
