@@ -274,8 +274,14 @@ async function save() {
     for (const f of newFiles.value) fd.append('bilder[]', f)
 
     const res = await saveRezept(fd, isEdit.value ? Number(props.id) : undefined)
-    const newId = res.ID ?? props.id
-    router.push(`/recipe/${newId}`)
+    if (res.imageWarning) {
+      errorMsg.value = '⚠️ ' + res.imageWarning
+      // Trotzdem zur Rezeptseite navigieren – Rezept wurde gespeichert, nur Bild fehlt
+      setTimeout(() => router.push(`/recipe/${res.ID ?? props.id}`), 3000)
+    } else {
+      const newId = res.ID ?? props.id
+      router.push(`/recipe/${newId}`)
+    }
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Speichern fehlgeschlagen'
   } finally {

@@ -770,6 +770,8 @@ switch ($task) {
                         if ($written && file_exists('uploads/' . $fileNameNew)) {
                             $stmt = $pdo->prepare("INSERT INTO bilder (Rezept_ID, Image) VALUES (:rezeptID, :image)");
                             $stmt->execute(['rezeptID' => $rezeptID, 'image' => $fileNameNew]);
+                        } else {
+                            $imageError = 'Bild konnte nicht gespeichert werden. Bitte Schreibrechte auf dem Server prüfen: chmod 775 uploads && chown www-data:www-data uploads';
                         }
                     }
                 }
@@ -780,7 +782,9 @@ switch ($task) {
             $wantsJson = isset($_GET['app'])
                 || (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
             if ($wantsJson) {
-                echo json_encode(['success' => true, 'ID' => (int)$rezeptID]);
+                $resp = ['success' => true, 'ID' => (int)$rezeptID];
+                if (!empty($imageError)) { $resp['imageWarning'] = $imageError; }
+                echo json_encode($resp);
             } else {
                 header('Location: rezept.php?id=' . $rezeptID);
             }

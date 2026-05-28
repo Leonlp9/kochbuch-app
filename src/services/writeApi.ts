@@ -24,6 +24,7 @@ async function jsonFetch<T = unknown>(url: string, init?: RequestInit): Promise<
 interface IdResponse {
   success: boolean
   ID?: number
+  imageWarning?: string
 }
 
 // ---------- Rezepte ----------
