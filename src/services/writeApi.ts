@@ -88,6 +88,10 @@ export function addToBring(rezeptId: number) {
   )
 }
 
+export function deleteEinkaufsliste(id: number | string) {
+  return jsonFetch(apiUrl('deleteEinkaufsliste', { id: String(id) }))
+}
+
 // ---------- Kategorien ----------
 export function addKategorie(name: string, color: string) {
   return jsonFetch<IdResponse>(apiUrl('addKategorie', { name, color }))

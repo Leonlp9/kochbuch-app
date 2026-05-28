@@ -6,6 +6,7 @@ import type {
   Kategorie,
   KalenderEintrag,
   KitchenAppliance,
+  EinkaufslisteItem,
 } from '@/types/models'
 
 // Hilfsfunktion: stabilen Cache-Key aus Suchparametern bauen.
@@ -101,3 +102,10 @@ export async function getKitchenAppliances(): Promise<FetchResult<KitchenApplian
   res.data = res.data.map((a) => ({ ...a, Image: mediaUrl(a.Image) }))
   return res
 }
+
+export async function getEinkaufsliste(): Promise<FetchResult<EinkaufslisteItem[]>> {
+  const res = await getJSON<EinkaufslisteItem[]>(apiUrl('getEinkaufsliste'), 'einkaufsliste')
+  res.data = res.data.map((item) => ({ ...item, Image: mediaUrl(item.Image) }))
+  return res
+}
+
