@@ -30,8 +30,9 @@ function patch(filePath, replacements) {
   }
 }
 
-// 1) variables.gradle – compileSdk + targetSdk auf 35
+// 1) variables.gradle – minSdk auf 23, compileSdk + targetSdk auf 35
 patch(resolve(root, 'android/variables.gradle'), [
+  [/minSdkVersion\s*=\s*\d+/,     'minSdkVersion = 23'],
   [/compileSdkVersion\s*=\s*\d+/, 'compileSdkVersion = 35'],
   [/targetSdkVersion\s*=\s*\d+/,  'targetSdkVersion = 35'],
 ])
