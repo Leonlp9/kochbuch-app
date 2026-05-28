@@ -36,6 +36,12 @@ jobs:
       - name: Web-App bauen
         run: npm run build
 
+      - name: Android-Plattform hinzufuegen (falls nicht im Repo)
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+
       - name: Android-Projekt synchronisieren
         run: npx cap sync android
 
