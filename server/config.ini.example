@@ -1,0 +1,7 @@
+database = "kochbuch"
+username = "DEIN_DB_BENUTZER"
+password = "DEIN_DB_PASSWORT"
+base_url = "http://localhost/KochbuchNewApi/"
+gemini_token = ""
+bring_email = ""
+bring_password = ""

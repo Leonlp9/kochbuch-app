@@ -1,0 +1,7 @@
+# Erlaubt der App, Bilder/Icons per fetch zu laden und offline zu speichern.
+# Braucht mod_headers:  sudo a2enmod headers && sudo systemctl restart apache2
+<IfModule mod_headers.c>
+    <FilesMatch "\.(webp|png|jpe?g|svg|gif|ico)$">
+        Header set Access-Control-Allow-Origin "*"
+    </FilesMatch>
+</IfModule>
