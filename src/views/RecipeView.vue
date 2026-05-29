@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getRezept } from '@/services/api'
 import { apiUrl, mediaUrl } from '@/config'
@@ -396,7 +396,11 @@ async function saveNote() {
   }
 }
 
-onMounted(async () => {
+async function loadRezept() {
+  loading.value = true
+  error.value = false
+  rezept.value = null
+  checked.value = new Set()
   try {
     const { data } = await getRezept(props.id)
     rezept.value = data
@@ -406,7 +410,12 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+// Neu laden wenn ID wechselt (z.B. Navigation via KI-Chat-Links)
+watch(() => props.id, loadRezept)
+
+onMounted(loadRezept)
 </script>
 
 <template>

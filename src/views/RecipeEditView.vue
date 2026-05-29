@@ -646,7 +646,7 @@ async function save() {
         </div>
 
         <div v-for="ing in ingredientsOf(table)" :key="ing.ID + '-' + ing.table" class="zrow">
-          <img :src="cachedSrc(ing.Image) || ''" :alt="ing.Name" onerror="this.style.visibility='hidden'" />
+          <img v-if="ing.Image" :src="cachedSrc(ing.Image)" :alt="ing.Name" />
           <span class="zname">{{ ing.Name }}</span>
           <div class="zinputs">
             <input v-model.number="ing.Menge" type="number" min="0" step="0.1" class="zmenge" />
@@ -719,7 +719,7 @@ async function save() {
           class="ing-result"
           @click="pickIngredient(z)"
         >
-          <img :src="z.Image" :alt="z.Name" onerror="this.style.visibility='hidden'" />
+          <img v-if="z.Image" :src="z.Image" :alt="z.Name" />
           <span>{{ z.Name }}</span>
           <small>{{ z.unit }}</small>
         </button>

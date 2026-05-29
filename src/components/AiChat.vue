@@ -138,7 +138,7 @@ function removeChat(id: string, e: MouseEvent) {
 }
 
 function goToRecipe(id: number) {
-  router.push(`/recipe/${id}`)
+  router.push(`/recipe/${id}`).catch(() => {})
   closeChat()
 }
 
@@ -146,7 +146,7 @@ function useDraft(draft: AIRecipeResult) {
   try {
     localStorage.setItem('kochbuch_ai_draft', JSON.stringify(draft))
   } catch { /* ignore */ }
-  router.push('/new')
+  router.push('/new').catch(() => {})
   closeChat()
 }
 
@@ -460,6 +460,10 @@ onMounted(() => {
   border: 1px solid var(--line);
 }
 @media (max-width: 480px) {
+  /* FAB mit X verstecken – Chat hat eigenen Schließen-Button */
+  .ai-fab--open {
+    display: none;
+  }
   .chat-wrap {
     padding: 0;
     align-items: stretch;
@@ -472,6 +476,13 @@ onMounted(() => {
     border: none;
   }
   .chat-backdrop { display: none; }
+  /* Safe-Areas: Kamera-Notch oben, Android-Nav unten */
+  .chat-header {
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  }
+  .chat-input-wrap {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 /* ── Sidebar ── */
