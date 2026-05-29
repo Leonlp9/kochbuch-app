@@ -464,25 +464,28 @@ onMounted(() => {
   .ai-fab--open {
     display: none;
   }
+  /*
+   * Fullscreen-Chat: Safe-Areas direkt im inset einrechnen.
+   * Der Wrapper wird zwischen Status-/Navigationsleiste positioniert,
+   * sodass kein Inhalt dahinter verschwindet – unabhängig davon, ob
+   * env(safe-area-inset-*) korrekt befüllt ist.
+   */
   .chat-wrap {
+    top: env(safe-area-inset-top, 0px);
+    right: 0;
+    bottom: env(safe-area-inset-bottom, 0px);
+    left: 0;
     padding: 0;
     align-items: stretch;
     justify-content: stretch;
   }
   .chat-panel {
-    width: 100vw;
-    height: 100dvh;
+    width: 100%;
+    height: 100%;
     border-radius: 0;
     border: none;
   }
   .chat-backdrop { display: none; }
-  /* Safe-Areas: Kamera-Notch oben, Android-Nav unten */
-  .chat-header {
-    padding-top: calc(10px + env(safe-area-inset-top, 0px));
-  }
-  .chat-input-wrap {
-    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-  }
 }
 
 /* ── Sidebar ── */

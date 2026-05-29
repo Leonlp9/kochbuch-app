@@ -719,7 +719,7 @@ async function save() {
           class="ing-result"
           @click="pickIngredient(z)"
         >
-          <img v-if="z.Image" :src="z.Image" :alt="z.Name" />
+          <img v-if="z.Image" :src="cachedSrc(z.Image)" :alt="z.Name" />
           <span>{{ z.Name }}</span>
           <small>{{ z.unit }}</small>
         </button>
