@@ -295,6 +295,9 @@ onMounted(load)
   border-radius: var(--r-lg);
   padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-2);
   width: 100%;
+  /* Verhindert Overflow auf kleinen Screens */
+  min-width: 0;
+  overflow: hidden;
   /* Verhindert Text-Selektion beim Drag */
   user-select: none;
   -webkit-user-select: none;
@@ -339,6 +342,16 @@ onMounted(load)
   flex-direction: column;
   gap: 2px;
   padding: var(--sp-2) 0;
+  /* Grid-Item darf unter seine Content-Size schrumpfen */
+  min-width: 0;
+  overflow: hidden;
+}
+.entry-body strong,
+.entry-body span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .entry-body span {
   color: var(--ink-soft);

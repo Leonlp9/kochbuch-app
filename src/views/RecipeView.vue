@@ -141,7 +141,30 @@ async function printPage() {
     doc.line(margin, y, pageW - margin, y)
     y += 6
 
-    // Zutaten
+    // Bild (erstes Rezeptfoto) unterhalb der Infos einfügen
+    if (r.Bilder.length > 0) {
+      try {
+        const imgUrl = mediaUrl(r.Bilder[0].Image)
+        const imgResp = await fetch(imgUrl)
+        const imgBlob = await imgResp.blob()
+        const imgBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result as string)
+          reader.onerror = reject
+          reader.readAsDataURL(imgBlob)
+        })
+        // Seitenverhältnis ermitteln
+        const imgEl = new Image()
+        await new Promise<void>((res, rej) => { imgEl.onload = () => res(); imgEl.onerror = rej; imgEl.src = imgBase64 })
+        const ratio = imgEl.naturalWidth / imgEl.naturalHeight
+        const imgW = contentW
+        const imgH = Math.min(imgW / ratio, 80) // max 80 mm Höhe
+        const fmt = (imgBase64.match(/data:image\/(\w+);/) ?? [])[1]?.toUpperCase() ?? 'JPEG'
+        checkY(imgH + 4)
+        doc.addImage(imgBase64, fmt, margin, y, imgW, imgH)
+        y += imgH + 6
+      } catch { /* Bild nicht verfügbar – ignorieren */ }
+    }
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(14)
     doc.setTextColor(40, 40, 40)

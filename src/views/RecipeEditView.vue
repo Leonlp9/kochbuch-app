@@ -126,24 +126,7 @@ onMounted(async () => {
       if (draft.optional_infos?.length) {
         optInfos.value = draft.optional_infos
       }
-      const newTables: string[] = []
-      const newIngredients: EditIngredient[] = []
-      for (const tbl of draft.ingredient_tables || []) {
-        const tableName = tbl.table_name ?? ''
-        if (!newTables.includes(tableName)) newTables.push(tableName)
-        for (const ing of tbl.ingredients || []) {
-          const known = allKnownIngredients.value.find((z) => z.ID === ing.ingredient_id)
-          newIngredients.push({
-            ID: ing.ingredient_id || 0,
-            Menge: ing.quantity || 0,
-            unit: ing.unit || '',
-            Name: ing.ingredient_name || '',
-            Image: known?.Image || '',
-            additionalInfo: ing.additional_info || '',
-            table: tableName,
-          })
-        }
-      }
+      const { newTables, newIngredients } = await resolveAiIngredients(draft.ingredient_tables || [])
       tables.value = newTables.length ? newTables : ['']
       ingredients.value = newIngredients
       aiFilledForm.value = true
@@ -193,6 +176,63 @@ onMounted(async () => {
   loading.value = false
 })
 
+// --- KI-Zutaten auflösen: bekannte per ID/Name finden, unbekannte neu anlegen ---
+async function resolveAiIngredients(
+  aiTables: { table_name?: string; ingredients?: { ingredient_id?: number; ingredient_name?: string; quantity?: number; unit?: string; additional_info?: string }[] }[]
+): Promise<{ newTables: string[]; newIngredients: EditIngredient[] }> {
+  const newTables: string[] = []
+  const newIngredients: EditIngredient[] = []
+
+  for (const tbl of aiTables) {
+    const tableName = tbl.table_name ?? ''
+    if (!newTables.includes(tableName)) newTables.push(tableName)
+
+    for (const ing of tbl.ingredients ?? []) {
+      const aiId   = ing.ingredient_id ?? 0
+      const aiName = (ing.ingredient_name ?? '').trim()
+      if (!aiName) continue  // Zutat ohne Namen überspringen
+
+      // 1. Direkte ID-Zuordnung
+      let known = allKnownIngredients.value.find((z) => z.ID === aiId && aiId > 0)
+
+      // 2. Namenssuche (case-insensitive) – deckt ab, wenn KI eine falsche/keine ID liefert
+      if (!known) {
+        const lower = aiName.toLowerCase()
+        known = allKnownIngredients.value.find((z) => z.Name.toLowerCase() === lower)
+      }
+
+      let resolvedId   = known?.ID   ?? 0
+      let resolvedUnit = known?.unit ?? ing.unit ?? ''
+      let resolvedImg  = known?.Image ?? ''
+
+      // 3. Zutat existiert noch nicht → automatisch in der DB anlegen
+      if (!resolvedId) {
+        try {
+          const res = await addZutat(aiName, ing.unit || 'g')
+          if (res.ID) {
+            resolvedId   = res.ID
+            resolvedUnit = ing.unit || 'g'
+            // Lokale Liste aktualisieren, damit weitere Zutaten des gleichen Rezepts profitieren
+            allKnownIngredients.value.push({ ID: res.ID, Name: aiName, unit: resolvedUnit, Image: '' })
+          }
+        } catch { /* Kann nicht angelegt werden – Zutat trotzdem einfügen, Nutzer kann korrigieren */ }
+      }
+
+      newIngredients.push({
+        ID:             resolvedId,
+        Menge:          ing.quantity ?? 0,
+        unit:           resolvedUnit,
+        Name:           aiName,
+        Image:          resolvedImg,
+        additionalInfo: ing.additional_info ?? '',
+        table:          tableName,
+      })
+    }
+  }
+
+  return { newTables, newIngredients }
+}
+
 // --- KI-Datei ---
 function onAiFilePicked(e: Event) {
   const input = e.target as HTMLInputElement
@@ -224,26 +264,9 @@ async function startAiAnalysis() {
       kategorieId.value = String(r.category_id)
     }
 
-    const newTables: string[] = []
-    const newIngredients: EditIngredient[] = []
-
-    for (const tbl of r.ingredient_tables || []) {
-      const tableName = tbl.table_name ?? ''
-      if (!newTables.includes(tableName)) newTables.push(tableName)
-      for (const ing of tbl.ingredients || []) {
-        const known = allKnownIngredients.value.find((z) => z.ID === ing.ingredient_id)
-        newIngredients.push({
-          ID: ing.ingredient_id || 0,
-          Menge: ing.quantity || 0,
-          unit: ing.unit || '',
-          Name: ing.ingredient_name || '',
-          Image: known?.Image || '',
-          additionalInfo: ing.additional_info || '',
-          table: tableName,
-        })
-      }
-    }
-
+    // Zutaten auflösen: bekannte matchen, unbekannte automatisch anlegen
+    aiProgress.value = 'Zutaten werden abgeglichen…'
+    const { newTables, newIngredients } = await resolveAiIngredients(r.ingredient_tables || [])
     tables.value = newTables.length ? newTables : ['']
     ingredients.value = newIngredients
 
