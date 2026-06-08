@@ -16,7 +16,9 @@
     "@capacitor/android": "^6.1.2",
     "@capacitor/app": "^6.0.3",
     "@capacitor/core": "^6.1.2",
+    "@capacitor/filesystem": "^6.0.4",
     "@capacitor/network": "^6.0.3",
+    "@capacitor/share": "^6.0.4",
     "@capgo/capacitor-updater": "^6.45.10",
     "@fontsource/fraunces": "^5.0.21",
     "@fontsource/work-sans": "^5.0.27",
@@ -25,6 +27,7 @@
     "jspdf": "^4.2.1",
     "pinia": "^2.2.2",
     "vue": "^3.4.38",
+    "vue-draggable-plus": "^0.6.1",
     "vue-router": "^4.4.3"
   },
   "devDependencies": {

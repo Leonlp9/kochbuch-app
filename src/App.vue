@@ -52,6 +52,7 @@ onMounted(() => {
   padding-right: env(safe-area-inset-right, 0px);
 }
 .app-main {
+  grid-column: 2; /* NavBar ist position:fixed → fällt aus dem Grid-Flow → explizit in Spalte 2 setzen */
   min-width: 0;
 }
 
@@ -127,7 +128,7 @@ onMounted(() => {
   transform: translateY(-8px);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (orientation: landscape) and (max-height: 500px) {
   .app-shell {
     grid-template-columns: 1fr;
     /* Auf Mobile: kein seitliches NavBar-Padding, Safe-Area wird von NavBar selbst gehandelt */
@@ -135,6 +136,7 @@ onMounted(() => {
     padding-right: 0;
   }
   .app-main {
+    grid-column: 1; /* Im Mobile-/Landscape-Modus: volle Breite */
     padding-bottom: calc(var(--nav-h-mobile) + env(safe-area-inset-bottom, 0px));
   }
 }

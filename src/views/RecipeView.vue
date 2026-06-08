@@ -18,6 +18,8 @@ import RichText from '@/components/RichText.vue'
 import { cachedSrc } from '@/services/imageCache'
 import type { Rezept, OptionalInfo, KitchenAppliance, Bewertung } from '@/types/models'
 import { Capacitor } from '@capacitor/core'
+import { Filesystem, Directory } from '@capacitor/filesystem'
+import { Share } from '@capacitor/share'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -97,8 +99,9 @@ async function printPage() {
     return
   }
 
-  // Mobile (Android Capacitor): PDF via jsPDF erzeugen
+  // Native App (Android): PDF via jsPDF erzeugen → Temp-Datei → natives Share-Sheet
   printing.value = true
+  showToast('PDF wird erstellt…')
   try {
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -108,11 +111,7 @@ async function printPage() {
     const contentW = pageW - margin * 2
     let y = margin
 
-    const addPage = () => {
-      doc.addPage()
-      y = margin
-    }
-
+    const addPage = () => { doc.addPage(); y = margin }
     const checkY = (needed = 10) => {
       if (y + needed > doc.internal.pageSize.getHeight() - margin) addPage()
     }
@@ -180,7 +179,6 @@ async function printPage() {
     doc.setTextColor(40, 40, 40)
     doc.text('Zubereitung', margin, y)
     y += 7
-
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
     doc.setTextColor(40, 40, 40)
@@ -213,28 +211,34 @@ async function printPage() {
       }
     }
 
-    const pdfBlob = doc.output('blob')
-    const filename = `${r.Name.replace(/[^a-z0-9äöüß\s]/gi, '').trim()}.pdf`
+    // PDF als Base64 → temporäre Datei im Cache → natives Share-Sheet
+    const base64 = doc.output('datauristring').split(',')[1]
+    const filename = `${r.Name.replace(/[^a-z0-9äöüß\s]/gi, '').trim() || 'Rezept'}.pdf`
 
-    // Web Share API (Android unterstützt das nativ)
-    if (navigator.canShare) {
-      const file = new File([pdfBlob], filename, { type: 'application/pdf' })
-      if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: r.Name })
-        return
-      }
-    }
+    const fileResult = await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Cache,
+    })
 
-    // Fallback: Blob-URL öffnen / herunterladen
-    const url = URL.createObjectURL(pdfBlob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10000)
+    await Share.share({
+      title: r.Name,
+      url: fileResult.uri,
+      dialogTitle: 'Rezept als PDF teilen oder speichern',
+    })
+
+    // Temp-Datei nach 10 Sekunden aufräumen
+    setTimeout(() => {
+      Filesystem.deleteFile({ path: filename, directory: Directory.Cache }).catch(() => {})
+    }, 10_000)
+
   } catch (e) {
-    showToast('PDF konnte nicht erstellt werden')
-    console.error(e)
+    // Share-Sheet vom Nutzer geschlossen → kein Fehler anzeigen
+    const msg = e instanceof Error ? e.message : ''
+    if (!msg.toLowerCase().includes('cancel') && !msg.toLowerCase().includes('dismiss')) {
+      showToast('PDF konnte nicht erstellt werden')
+      console.error(e)
+    }
   } finally {
     printing.value = false
   }

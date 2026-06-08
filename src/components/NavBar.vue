@@ -124,8 +124,8 @@ const items: NavItem[] = [
   opacity: 1;
 }
 
-/* --- Mobile: Bottom-Nav --- */
-@media (max-width: 768px) {
+/* --- Mobile: Bottom-Nav (Portrait + Landscape auf Smartphones) --- */
+@media (max-width: 768px), (orientation: landscape) and (max-height: 500px) {
   .nav {
     inset: auto 0 0 0;
     width: 100%;

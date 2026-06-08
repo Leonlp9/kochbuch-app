@@ -27,11 +27,13 @@ const sending     = ref(false)
 const showSidebar = ref(false)
 const messagesEl  = ref<HTMLElement | null>(null)
 
-// Aktuelles Rezept aus der Route ableiten
 const currentRecipeId = computed(() => {
   if (route.name === 'recipe') return route.params.id as string
   return null
 })
+
+// KI-Chat im Kalender ausblenden
+const isChatHidden = computed(() => route.name === 'calendar')
 
 const activeChat = computed(() => getActiveChat())
 
@@ -162,6 +164,11 @@ watch(() => activeChat.value?.messages.length, () => {
   if (isChatOpen.value) scrollToBottom()
 })
 
+// Chat schließen, wenn in den Kalender gewechselt wird
+watch(() => route.name, (name) => {
+  if (name === 'calendar') closeChat()
+})
+
 onMounted(() => {
   if (sessions.value.length === 0) createChat()
 })
@@ -171,6 +178,7 @@ onMounted(() => {
   <Teleport to="body">
     <!-- Floating Action Button -->
     <button
+      v-if="!isChatHidden"
       class="ai-fab"
       :class="{ 'ai-fab--open': isChatOpen }"
       title="KI-Assistent"
@@ -200,12 +208,16 @@ onMounted(() => {
                 </button>
               </div>
               <div class="sidebar-list">
-                <button
+                <div
                   v-for="s in sessions"
                   :key="s.id"
                   class="sidebar-item"
                   :class="{ active: s.id === activeChatId }"
+                  role="button"
+                  tabindex="0"
                   @click="switchChat(s.id)"
+                  @keydown.enter.prevent="switchChat(s.id)"
+                  @keydown.space.prevent="switchChat(s.id)"
                 >
                   <div class="sidebar-item-content">
                     <span class="sidebar-item-name">{{ s.name }}</span>
@@ -213,12 +225,12 @@ onMounted(() => {
                   </div>
                   <button
                     class="icon-btn danger sidebar-del"
-                    title="Chat l&ouml;schen"
+                    title="Chat löschen"
                     @click="removeChat(s.id, $event)"
                   >
                     <i class="fa-solid fa-trash" />
                   </button>
-                </button>
+                </div>
                 <div v-if="sessions.length === 0" class="sidebar-empty">
                   Keine Chats
                 </div>
@@ -382,7 +394,7 @@ onMounted(() => {
   transition: transform 0.25s cubic-bezier(.34,1.56,.64,1), background 0.2s;
   overflow: hidden;
 }
-@media (min-width: 769px) {
+@media (min-width: 769px) and (min-height: 501px) {
   .ai-fab {
     bottom: 28px;
     right: 28px;
@@ -419,7 +431,7 @@ onMounted(() => {
   justify-content: flex-end;
   padding: 0 20px calc(var(--nav-h-mobile, 64px) + 86px + env(safe-area-inset-bottom, 0px)) 0;
 }
-@media (min-width: 769px) {
+@media (min-width: 769px) and (min-height: 501px) {
   .chat-wrap {
     padding: 0 98px 100px 0;
   }
@@ -482,6 +494,30 @@ onMounted(() => {
   .chat-panel {
     width: 100%;
     height: 100%;
+    border-radius: 0;
+    border: none;
+  }
+  .chat-backdrop { display: none; }
+}
+
+/* Landscape auf Smartphones: Chat-Panel passt sich der niedrigen Höhe an */
+@media (orientation: landscape) and (max-height: 500px) {
+  .ai-fab--open {
+    display: none;
+  }
+  .chat-wrap {
+    top: env(safe-area-inset-top, 0px);
+    right: env(safe-area-inset-right, 0px);
+    bottom: env(safe-area-inset-bottom, 0px);
+    left: env(safe-area-inset-left, 0px);
+    padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  .chat-panel {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
     border-radius: 0;
     border: none;
   }

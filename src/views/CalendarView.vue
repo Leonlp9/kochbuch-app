@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getKalender } from '@/services/api'
 import { addKalender, updateKalender, deleteKalender } from '@/services/writeApi'
@@ -7,6 +7,7 @@ import { isOnline } from '@/services/network'
 import Modal from '@/components/Modal.vue'
 import { cachedSrc } from '@/services/imageCache'
 import type { KalenderEintrag } from '@/types/models'
+import { VueDraggable } from 'vue-draggable-plus'
 
 const router = useRouter()
 const entries = ref<KalenderEintrag[]>([])
@@ -14,14 +15,52 @@ const loading = ref(true)
 const showPast = ref(false)
 const busy = ref(false)
 
-const grouped = computed(() => {
+// ── Drag-and-Drop Datenstruktur ──────────────────────────────────────────────
+interface DayGroup { date: string; list: KalenderEintrag[] }
+const displayDays = ref<DayGroup[]>([])
+
+function buildDisplayDays() {
   const map = new Map<string, KalenderEintrag[]>()
+
+  // Bestehende Ghost-Days (leere Tage) erhalten – ermöglicht 2-Zug-Tausch
+  for (const day of displayDays.value) {
+    if (day.list.length === 0) map.set(day.date, [])
+  }
+
   for (const e of entries.value) {
     if (!map.has(e.Datum)) map.set(e.Datum, [])
     map.get(e.Datum)!.push(e)
   }
-  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-})
+
+  displayDays.value = [...map.entries()]
+    .sort((a, b) =>
+      showPast.value ? b[0].localeCompare(a[0]) : a[0].localeCompare(b[0])
+    )
+    .map(([date, list]) => ({ date, list }))
+}
+
+// Neu bauen wenn Einträge vom Server kommen oder showPast toggled
+watch(entries, buildDisplayDays)
+watch(showPast, buildDisplayDays)
+
+// ── Drag-End: Datum des verschobenen Eintrags aktualisieren ──────────────────
+function onDragEnd(evt: { item: Element }) {
+  const kid = parseInt((evt.item as HTMLElement).dataset.kid ?? '0')
+  if (!kid) return
+
+  for (const day of displayDays.value) {
+    const entry = day.list.find(e => e.Kalender_ID === kid)
+    if (entry) {
+      if (day.date !== entry.Datum) {
+        const newDate = day.date
+        entry.Datum = newDate
+        // Serverseitig speichern (kein Reload – Ghost-Days bleiben erhalten)
+        updateKalender(kid, { text: entry.Text ?? '', date: newDate }).catch(() => {})
+      }
+      break
+    }
+  }
+}
 
 function fmt(d: string) {
   return new Date(d).toLocaleDateString('de-DE', {
@@ -72,10 +111,7 @@ async function save() {
     if (editId.value != null) {
       await updateKalender(editId.value, { text: fText.value, date: fDate.value })
     } else {
-      if (!fText.value.trim()) {
-        busy.value = false
-        return
-      }
+      if (!fText.value.trim()) { busy.value = false; return }
       await addKalender(fDate.value, fText.value)
     }
     showForm.value = false
@@ -117,29 +153,48 @@ onMounted(load)
       <div v-for="n in 4" :key="n" class="skeleton" style="height: 88px; border-radius: var(--r-lg)"></div>
     </div>
 
-    <div v-else-if="grouped.length" class="days">
-      <section v-for="[date, list] in grouped" :key="date" class="day">
-        <h2 class="day-title">{{ fmt(date) }}</h2>
-        <div
-          v-for="e in list"
-          :key="e.Kalender_ID"
-          class="entry"
-          :class="{ clickable: e.Rezept_ID != null }"
+    <div v-else-if="displayDays.length" class="days">
+      <section v-for="day in displayDays" :key="day.date" class="day">
+        <h2 class="day-title">{{ fmt(day.date) }}</h2>
+
+        <!-- Sortierbare Eintrags-Liste für diesen Tag -->
+        <VueDraggable
+          v-model="day.list"
+          group="calendar-entries"
+          handle=".drag-handle"
+          :animation="200"
+          ghost-class="entry--ghost"
+          class="sortable-list"
+          :class="{ 'sortable-list--empty': day.list.length === 0 }"
+          @end="onDragEnd"
         >
           <div
-            v-if="e.Image"
-            class="entry-img"
-            :style="{ backgroundImage: `url('${cachedSrc(e.Image)}')` }"
-            @click="open(e)"
-          ></div>
-          <div class="entry-body" @click="open(e)">
-            <strong>{{ e.Name ?? e.Text }}</strong>
-            <span v-if="e.Text && e.Name">{{ e.Text }}</span>
+            v-for="e in day.list"
+            :key="e.Kalender_ID"
+            class="entry"
+            :class="{ clickable: e.Rezept_ID != null }"
+            :data-kid="e.Kalender_ID"
+          >
+            <!-- Drag-Handle -->
+            <div class="drag-handle" title="Verschieben">
+              <i class="fa-solid fa-grip-lines"></i>
+            </div>
+
+            <div
+              v-if="e.Image"
+              class="entry-img"
+              :style="{ backgroundImage: `url('${cachedSrc(e.Image)}')` }"
+              @click="open(e)"
+            ></div>
+            <div class="entry-body" @click="open(e)">
+              <strong>{{ e.Name ?? e.Text }}</strong>
+              <span v-if="e.Text && e.Name">{{ e.Text }}</span>
+            </div>
+            <button class="entry-edit" :disabled="!isOnline" @click.stop="openEdit(e)" aria-label="Bearbeiten">
+              <i class="fa-solid fa-pen"></i>
+            </button>
           </div>
-          <button class="entry-edit" :disabled="!isOnline" @click.stop="openEdit(e)" aria-label="Bearbeiten">
-            <i class="fa-solid fa-pen"></i>
-          </button>
-        </div>
+        </VueDraggable>
       </section>
     </div>
 
@@ -206,9 +261,32 @@ onMounted(load)
   font-size: var(--fs-h3);
   color: var(--accent-strong);
 }
+
+/* ── Sortable-Liste ── */
+.sortable-list {
+  display: grid;
+  gap: var(--sp-2);
+  min-height: 4px; /* SortableJS braucht eine minimale Höhe als Drop-Zone */
+}
+.sortable-list--empty {
+  min-height: 64px;
+  border: 2px dashed var(--line);
+  border-radius: var(--r-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+  font-size: var(--fs-sm);
+  transition: border-color 0.15s, background 0.15s;
+}
+.sortable-list--empty::after {
+  content: '↓ Hier ablegen';
+}
+
+/* ── Eintrag ── */
 .entry {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 32px auto 1fr auto;
   gap: var(--sp-3);
   align-items: center;
   text-align: left;
@@ -217,11 +295,38 @@ onMounted(load)
   border-radius: var(--r-lg);
   padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-2);
   width: 100%;
+  /* Verhindert Text-Selektion beim Drag */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .entry.clickable .entry-body,
 .entry.clickable .entry-img {
   cursor: pointer;
 }
+
+/* Ghost während des Ziehens – SortableJS setzt die Klasse per JS, daher :deep() */
+:deep(.entry--ghost) {
+  opacity: 0.35;
+  background: var(--accent-soft) !important;
+  border: 2px dashed var(--accent) !important;
+}
+
+/* ── Drag-Handle ── */
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  color: var(--ink-faint);
+  cursor: grab;
+  touch-action: none; /* Wichtig: verhindert Scroll-Konflikte auf Touch */
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  padding: var(--sp-2) 0;
+}
+.drag-handle:hover { color: var(--ink-soft); }
+.drag-handle:active { cursor: grabbing; }
+
 .entry-img {
   width: 64px;
   height: 64px;
@@ -254,6 +359,7 @@ onMounted(load)
 .entry-edit:disabled {
   opacity: 0.4;
 }
+
 .fab {
   position: fixed;
   right: 18px;

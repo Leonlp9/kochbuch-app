@@ -649,7 +649,7 @@ async function save() {
           <img v-if="ing.Image" :src="cachedSrc(ing.Image)" :alt="ing.Name" />
           <span class="zname">{{ ing.Name }}</span>
           <div class="zinputs">
-            <input v-model.number="ing.Menge" type="number" min="0" step="0.1" class="zmenge" />
+            <input v-model.number="ing.Menge" type="number" min="0" step="any" class="zmenge" />
             <span class="zunit">{{ ing.unit }}</span>
             <input v-model="ing.additionalInfo" placeholder="Info" class="zinfo" />
           </div>
