@@ -25,6 +25,7 @@ const props = defineProps<{ id: string }>()
 const router = useRouter()
 
 const rezept = ref<Rezept | null>(null)
+const activeImageIndex = ref(0)
 const loading = ref(true)
 const error = ref(false)
 const portionen = ref(4)
@@ -440,7 +441,7 @@ async function loadRezept() {
 }
 
 // Neu laden wenn ID wechselt (z.B. Navigation via KI-Chat-Links)
-watch(() => props.id, loadRezept)
+watch(() => props.id, () => { activeImageIndex.value = 0; loadRezept() })
 
 onMounted(loadRezept)
 </script>
@@ -467,13 +468,25 @@ onMounted(loadRezept)
 
       <!-- Bilder -->
       <div v-if="rezept.Bilder.length" class="gallery">
+        <!-- Hauptbild -->
         <img
-          v-for="b in rezept.Bilder"
-          :key="b.ID"
-          :src="cachedSrc(b.Image)"
+          class="gallery__main"
+          :src="cachedSrc(rezept.Bilder[activeImageIndex].Image)"
           :alt="rezept.Name"
-          loading="lazy"
         />
+        <!-- Thumbnail-Streifen (nur wenn > 1 Bild) -->
+        <div v-if="rezept.Bilder.length > 1" class="gallery__strip">
+          <img
+            v-for="(b, i) in rezept.Bilder"
+            :key="b.ID"
+            class="gallery__thumb"
+            :class="{ 'gallery__thumb--active': i === activeImageIndex }"
+            :src="cachedSrc(b.Image)"
+            :alt="`${rezept.Name} ${i + 1}`"
+            loading="lazy"
+            @click="activeImageIndex = i"
+          />
+        </div>
       </div>
 
       <!-- Info-Chips -->
@@ -709,16 +722,54 @@ onMounted(loadRezept)
 
 .gallery {
   display: flex;
+  flex-direction: column;
   gap: var(--sp-3);
-  flex-wrap: wrap;
   margin-bottom: var(--sp-4);
 }
-.gallery img {
-  border-radius: var(--r-lg);
+.gallery__main {
+  width: 100%;
   max-height: 420px;
-  max-width: 100%;
+  border-radius: var(--r-xl);
   object-fit: cover;
   box-shadow: var(--shadow-sm);
+}
+.gallery__strip {
+  display: flex;
+  gap: var(--sp-2);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: var(--sp-1);
+}
+.gallery__strip::-webkit-scrollbar {
+  height: 4px;
+}
+.gallery__strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+.gallery__strip::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: var(--r-full);
+}
+.gallery__thumb {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--r-md);
+  object-fit: cover;
+  cursor: pointer;
+  scroll-snap-align: start;
+  border: 2px solid transparent;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s var(--ease), opacity 0.15s var(--ease);
+  opacity: 0.7;
+}
+.gallery__thumb:hover {
+  opacity: 1;
+}
+.gallery__thumb--active {
+  border-color: var(--accent);
+  opacity: 1;
 }
 
 .infos {

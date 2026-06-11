@@ -1343,7 +1343,10 @@ switch ($task) {
 
         // Flood-Fill Hintergrundentfernung (SplStack = speichereffizient)
         $transpColor  = imagecolorallocatealpha($gdImg, 255, 255, 255, 127);
-        $bgThreshold  = 30;
+        // Nur fast reines Weiß entfernen (R,G,B ≥ 247).
+        // Wert 8 = Toleranz von ~3 % → trifft echten Hintergrund + JPEG-Artefakte,
+        // lässt aber alle hellgrauen, cremefarbenen oder pastelligen Icon-Bereiche unberührt.
+        $bgThreshold  = 8;
         $fStack = new SplStack();
         $fStack->push(0);
         $fStack->push($gdW - 1);
