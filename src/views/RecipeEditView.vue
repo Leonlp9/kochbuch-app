@@ -365,12 +365,62 @@ function addOptInfo() { optInfos.value.push({ title: '', content: '' }) }
 function removeOptInfo(i: number) { optInfos.value.splice(i, 1) }
 
 // --- Bilder ---
-function onFilesPicked(e: Event) {
+
+/**
+ * Komprimiert ein Bild via Canvas auf max. 1920 px Breite und konvertiert es
+ * nach JPEG (85 % Qualität). Damit werden alle Formate (inkl. HEIC) und
+ * sehr große Kamera-Fotos zuverlässig in ein server-kompatibles Format
+ * gebracht, bevor sie hochgeladen werden.
+ */
+async function compressImage(file: File, maxWidth = 1920, quality = 0.85): Promise<File> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const canvas = document.createElement('canvas')
+      let { width, height } = img
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width)
+        width = maxWidth
+      }
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { resolve(file); return }
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) { resolve(file); return }
+          // Dateinamen bereinigen und .jpg-Endung vergeben (sichert server-seitige Extension-Prüfung)
+          const baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'bild'
+          resolve(new File([blob], `${baseName}.jpg`, { type: 'image/jpeg', lastModified: Date.now() }))
+        },
+        'image/jpeg',
+        quality,
+      )
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(file) // Fallback: Original-Datei unverändert verwenden
+    }
+    img.src = url
+  })
+}
+
+async function onFilesPicked(e: Event) {
   const input = e.target as HTMLInputElement
   if (!input.files) return
   for (const f of Array.from(input.files)) {
-    newFiles.value.push(f)
-    newPreviews.value.push(URL.createObjectURL(f))
+    try {
+      const compressed = await compressImage(f)
+      newFiles.value.push(compressed)
+      newPreviews.value.push(URL.createObjectURL(compressed))
+    } catch {
+      // Fallback falls Komprimierung fehlschlägt
+      newFiles.value.push(f)
+      newPreviews.value.push(URL.createObjectURL(f))
+    }
   }
   input.value = ''
 }
@@ -698,7 +748,7 @@ async function save() {
       <div class="upload-row">
         <label class="upload">
           <i class="fa-solid fa-upload"></i> Bilder ausw&auml;hlen
-          <input type="file" accept="image/png,image/jpeg,image/webp" multiple @change="onFilesPicked" />
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,image/*" multiple @change="onFilesPicked" />
         </label>
         <button type="button" class="btn btn--ghost ai-img-btn" @click="openAiImageModal">
           <i class="fa-solid fa-wand-magic-sparkles"></i> KI-Bild generieren

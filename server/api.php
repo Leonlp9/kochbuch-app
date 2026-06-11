@@ -726,9 +726,11 @@ switch ($task) {
                     $fileTmpName = $files['tmp_name'][$key];
                     $fileError = $files['error'][$key];
                     $fileExt = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+                    $fileMime = mime_content_type($fileTmpName) ?: '';
                     $allowed = ['jpg', 'jpeg', 'png', 'webp'];
+                    $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
-                    if (in_array($fileExt, $allowed) && $fileError === 0) {
+                    if ((in_array($fileExt, $allowed) || in_array($fileMime, $allowedMimes)) && $fileError === 0) {
                         $img = imagecreatefromstring(file_get_contents($fileTmpName));
                         if ($img === false) { continue; }
                         imagepalettetotruecolor($img);
