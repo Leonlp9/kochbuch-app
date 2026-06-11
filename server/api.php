@@ -2062,7 +2062,31 @@ switch ($task) {
         }
         $checks[] = ['id' => 'zutat-keine-menge', 'title' => 'Zutat ohne Menge', 'description' => 'Zutaten ohne Mengenangabe und ohne Zusatzinfo.', 'severity' => 'warning', 'issues' => $noMengeIssues];
 
-        // 9. Doppelte Zutaten (gleicher Name + gleiche Einheit)
+        // 9. Ungültige Einheiten in der Zutatentabelle
+        $allowedUnits = ['g', 'ml', 'L', 'Stück', 'Prise', 'TL', 'EL', 'Tasse', 'Packung', 'Bund', 'Bd', 'Dose', 'Paket', 'Becher', 'Scheibe', 'Zehe', 'Zweige', 'Würfel', 'Messerspitze', 'Blätter'];
+        $placeholders = implode(',', array_fill(0, count($allowedUnits), '?'));
+        $stmtBadUnit = $pdo->prepare(
+            "SELECT ID, Name, unit FROM zutaten WHERE unit NOT IN ($placeholders) OR unit IS NULL OR TRIM(unit) = '' ORDER BY Name"
+        );
+        $stmtBadUnit->execute($allowedUnits);
+        $badUnitRows = $stmtBadUnit->fetchAll(PDO::FETCH_ASSOC);
+        $unitIssues = array_map(fn($z) => [
+            'rezepte_ID'   => (int)$z['ID'],
+            'name'         => $z['Name'],
+            'details'      => 'Einheit: "' . ($z['unit'] ?? '') . '"',
+            'current_unit' => $z['unit'] ?? '',
+            'zutat_id'     => (int)$z['ID'],
+        ], $badUnitRows);
+        $checks[] = [
+            'id'                => 'ungueltige-einheit',
+            'title'             => 'Ungültige Einheit',
+            'description'       => 'Zutaten, deren Einheit nicht in der Standard-Auswahl liegt (z. B. "Stck." statt "Stück"). Hier direkt korrigierbar.',
+            'severity'          => 'error',
+            'issues'            => $unitIssues,
+            'is_unit_fix_check' => true,
+        ];
+
+        // 10. Doppelte Zutaten (gleicher Name + gleiche Einheit)
         $dupRows = $pdo->query(
             "SELECT GROUP_CONCAT(ID ORDER BY ID SEPARATOR ',') as ids, Name, unit, COUNT(*) as cnt
              FROM zutaten GROUP BY LOWER(Name), LOWER(unit) HAVING cnt > 1 ORDER BY Name"
@@ -2082,6 +2106,20 @@ switch ($task) {
         $result = ['success' => true, 'checks' => $checks, 'computed_at' => time()];
         file_put_contents($cacheFile, json_encode($result));
         echo json_encode($result);
+        die();
+
+    case 'fixIngredientUnit':
+        $fixZutatId = (int)($_GET['zutat_id'] ?? 0);
+        $fixNewUnit = trim($_GET['new_unit'] ?? '');
+        if (!$fixZutatId || $fixNewUnit === '') {
+            echo json_encode(['error' => 'zutat_id und new_unit erforderlich', 'success' => false]);
+            die();
+        }
+        $pdo->prepare("UPDATE zutaten SET unit = ? WHERE ID = ?")->execute([$fixNewUnit, $fixZutatId]);
+        // Diagnostics-Cache invalidieren damit der Fehler sofort verschwindet
+        $fixCacheFile = sys_get_temp_dir() . '/kochbuch_diagnostics_cache.json';
+        if (file_exists($fixCacheFile)) unlink($fixCacheFile);
+        echo json_encode(['success' => true]);
         die();
 
     case 'mergeZutaten':

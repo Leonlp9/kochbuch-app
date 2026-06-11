@@ -29,7 +29,7 @@ const props = defineProps<{ id?: string }>()
 const router = useRouter()
 const isEdit = computed(() => props.id != null)
 
-const UNITS = ['g', 'ml', 'Stück', 'Prise', 'TL', 'EL', 'Tasse', 'Packung', 'Bund', 'Dose', 'Paket', 'Becher', 'Scheibe', 'Zehe', 'Zweige', 'Würfel', 'Messerspitze']
+const UNITS = ['g', 'ml', 'L', 'Stück', 'Prise', 'TL', 'EL', 'Tasse', 'Packung', 'Bund', 'Bd', 'Dose', 'Paket', 'Becher', 'Scheibe', 'Zehe', 'Zweige', 'Würfel', 'Messerspitze', 'Blätter']
 
 interface EditIngredient {
   ID: number

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getDiagnostics, type ServerDiagnosticCheck } from '@/services/api'
-import { mergeZutaten } from '@/services/writeApi'
+import { mergeZutaten, fixIngredientUnit } from '@/services/writeApi'
 
 // ─── Typen ───────────────────────────────────────────────────────────────────
 
@@ -18,7 +18,8 @@ export interface DiagnosticIssue {
 
 export const useDiagnosticsStore = defineStore('diagnostics', () => {
   const loading    = ref(false)
-  const merging    = ref<number | null>(null) // rezepte_ID of group being merged
+  const merging    = ref<number | null>(null)
+  const fixing     = ref<number | null>(null) // zutat_id being fixed
   const lastChecked = ref<Date | null>(null)
   const results    = ref<ServerDiagnosticCheck[]>([])
   const error      = ref('')
@@ -68,5 +69,18 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     }
   }
 
-  return { loading, merging, lastChecked, results, error, hasErrors, hasIssues, totalIssues, runChecks, rescan, mergeGroup }
+  async function fixUnit(zutatId: number, newUnit: string) {
+    fixing.value = zutatId
+    error.value = ''
+    try {
+      await fixIngredientUnit(zutatId, newUnit)
+      await runChecks(true)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Fehler beim Korrigieren der Einheit'
+    } finally {
+      fixing.value = null
+    }
+  }
+
+  return { loading, merging, fixing, lastChecked, results, error, hasErrors, hasIssues, totalIssues, runChecks, rescan, mergeGroup, fixUnit }
 })

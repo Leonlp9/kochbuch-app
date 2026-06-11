@@ -130,6 +130,12 @@ export function mergeZutaten(keepId: number, mergeIds: number[]) {
   )
 }
 
+export function fixIngredientUnit(zutatId: number, newUnit: string) {
+  return jsonFetch<{ success: boolean }>(
+    apiUrl('fixIngredientUnit', { zutat_id: String(zutatId), new_unit: newUnit }),
+  )
+}
+
 // ---------- Küchengeräte ----------
 export function addAppliance(name: string, image: File) {
   const fd = new FormData()

@@ -1,10 +1,24 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDiagnosticsStore } from '@/stores/diagnostics'
 
+const UNITS = ['g', 'ml', 'L', 'Stück', 'Prise', 'TL', 'EL', 'Tasse', 'Packung', 'Bund', 'Bd', 'Dose', 'Paket', 'Becher', 'Scheibe', 'Zehe', 'Zweige', 'Würfel', 'Messerspitze', 'Blätter']
+
 const store = useDiagnosticsStore()
 const router = useRouter()
+
+// Ausgewählte Einheiten pro zutat_id für den Unit-Fix-Check
+const selectedUnits = reactive<Record<number, string>>({})
+
+function getSelectedUnit(zutatId: number, currentUnit: string): string {
+  if (selectedUnits[zutatId] !== undefined) return selectedUnits[zutatId]
+  // Vorbelegung: ähnlichste Einheit suchen (case-insensitive)
+  const lower = currentUnit.toLowerCase()
+  const match = UNITS.find((u) => u.toLowerCase() === lower || u.toLowerCase().startsWith(lower.slice(0, 3)))
+  selectedUnits[zutatId] = match ?? UNITS[0]
+  return selectedUnits[zutatId]
+}
 
 onMounted(() => {
   // Immer laden – der Server entscheidet ob Neu-Berechnung nötig ist (Cache 24h)
@@ -130,6 +144,41 @@ function formatDate(d: Date | null) {
                 <i class="fa-solid" :class="store.merging === issue.rezepte_ID ? 'fa-spinner fa-spin' : 'fa-code-merge'"></i>
                 {{ store.merging === issue.rezepte_ID ? 'Führe zusammen…' : 'Zusammenführen' }}
               </button>
+            </div>
+          </li>
+        </ul>
+
+        <!-- Unit-Fix-Check: Ungültige Einheiten -->
+        <ul v-else-if="check.is_unit_fix_check" class="issue-list">
+          <li
+            v-for="issue in check.issues"
+            :key="issue.zutat_id"
+            class="issue-item unit-fix-item"
+          >
+            <div class="unit-fix-row">
+              <div class="unit-fix-info">
+                <i class="fa-solid fa-scale-unbalanced unit-fix-icon"></i>
+                <span class="issue-name">{{ issue.name }}</span>
+                <span class="unit-badge-bad">{{ issue.current_unit || '(leer)' }}</span>
+                <i class="fa-solid fa-arrow-right unit-arrow"></i>
+              </div>
+              <div class="unit-fix-action">
+                <select
+                  class="unit-select"
+                  :value="getSelectedUnit(issue.zutat_id!, issue.current_unit ?? '')"
+                  @change="selectedUnits[issue.zutat_id!] = ($event.target as HTMLSelectElement).value"
+                >
+                  <option v-for="u in UNITS" :key="u" :value="u">{{ u }}</option>
+                </select>
+                <button
+                  class="btn btn--accent btn--sm"
+                  :disabled="store.fixing !== null"
+                  @click="issue.zutat_id && store.fixUnit(issue.zutat_id, getSelectedUnit(issue.zutat_id, issue.current_unit ?? ''))"
+                >
+                  <i class="fa-solid" :class="store.fixing === issue.zutat_id ? 'fa-spinner fa-spin' : 'fa-check'"></i>
+                  {{ store.fixing === issue.zutat_id ? 'Speichern…' : 'Korrigieren' }}
+                </button>
+              </div>
             </div>
           </li>
         </ul>
@@ -402,6 +451,57 @@ function formatDate(d: Date | null) {
   flex-shrink: 0;
 }
 .merge-btn { gap: var(--sp-2); }
+
+/* ── Unit-Fix-Zeile ──────────────────────────────────────────────────────── */
+.unit-fix-item {
+  padding: var(--sp-3) var(--sp-5);
+}
+.unit-fix-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.unit-fix-info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.unit-fix-icon { color: var(--ink-soft); font-size: 0.9rem; flex-shrink: 0; }
+.unit-arrow { color: var(--ink-faint); font-size: 0.75rem; }
+.unit-badge-bad {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, #ef4444 15%, var(--surface));
+  color: #ef4444;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  font-family: monospace;
+  white-space: nowrap;
+}
+.unit-fix-action {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+.unit-select {
+  height: 36px;
+  padding: 0 var(--sp-2);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  outline: none;
+  cursor: pointer;
+}
+.unit-select:focus { border-color: var(--accent); }
 
 /* ── Bestandene Checks ───────────────────────────────────────────────────── */
 .ok-checks {

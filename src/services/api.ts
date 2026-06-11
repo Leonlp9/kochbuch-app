@@ -115,8 +115,11 @@ export interface ServerDiagnosticIssue {
   rezepte_ID: number
   name: string
   details?: string
-  /** Nur bei is_merge_check: alle Zutat-IDs dieser Duplikat-Gruppe */
+  /** Nur bei is_merge_check */
   merge_ids?: number[]
+  /** Nur bei is_unit_fix_check */
+  current_unit?: string
+  zutat_id?: number
 }
 
 export interface ServerDiagnosticCheck {
@@ -125,8 +128,8 @@ export interface ServerDiagnosticCheck {
   description: string
   severity: 'error' | 'warning'
   issues: ServerDiagnosticIssue[]
-  /** true wenn dieser Check Merge-Aktionen unterstützt */
   is_merge_check?: boolean
+  is_unit_fix_check?: boolean
 }
 
 export interface DiagnosticsResponse {

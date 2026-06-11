@@ -5,7 +5,7 @@ import { editZutat, deleteZutat, generateIngredientIcon, saveIngredientIcon } fr
 import { isOnline } from '@/services/network'
 import Modal from '@/components/Modal.vue'
 
-const UNITS = ['g', 'ml', 'Stück', 'Prise', 'TL', 'EL', 'Tasse', 'Packung', 'Bund', 'Dose', 'Paket', 'Becher', 'Scheibe', 'Zehe', 'Zweige', 'Würfel', 'Messerspitze']
+const UNITS = ['g', 'ml', 'L', 'Stück', 'Prise', 'TL', 'EL', 'Tasse', 'Packung', 'Bund', 'Bd', 'Dose', 'Paket', 'Becher', 'Scheibe', 'Zehe', 'Zweige', 'Würfel', 'Messerspitze', 'Blätter']
 
 const query = ref('')
 const list = ref<ZutatSuche[]>([])
