@@ -124,6 +124,12 @@ export function deleteZutat(id: number) {
   return jsonFetch(apiUrl('deleteZutat', { id: String(id) }))
 }
 
+export function mergeZutaten(keepId: number, mergeIds: number[]) {
+  return jsonFetch<{ success: boolean; updated_recipes: number; deleted_ingredients: number }>(
+    apiUrl('mergeZutaten', { keep_id: String(keepId), merge_ids: mergeIds.join(',') }),
+  )
+}
+
 // ---------- Küchengeräte ----------
 export function addAppliance(name: string, image: File) {
   const fd = new FormData()
@@ -174,6 +180,40 @@ export async function analyzeRecipeWithAI(file: File): Promise<AIAnalysisRespons
   const fd = new FormData()
   fd.append('file', file)
   return jsonFetch<AIAnalysisResponse>(apiUrl('geminiAnalyzeRecipe'), { method: 'POST', body: fd })
+}
+
+// ---------- KI-Zutaten aus Text extrahieren ----------
+export interface ExtractIngredientsResponse {
+  success: boolean
+  ingredient_tables?: AIRecipeTable[]
+  error?: string
+}
+
+export async function extractIngredientsFromText(text: string): Promise<ExtractIngredientsResponse> {
+  const fd = new FormData()
+  fd.append('text', text)
+  return jsonFetch<ExtractIngredientsResponse>(apiUrl('geminiExtractIngredients'), { method: 'POST', body: fd })
+}
+
+// ---------- KI-Zutaten-Icon generieren & speichern ----------
+
+export async function generateIngredientIcon(name: string): Promise<GeneratedImageResponse> {
+  const fd = new FormData()
+  fd.append('name', name)
+  return jsonFetch<GeneratedImageResponse>(apiUrl('geminiGenerateIngredientIcon'), { method: 'POST', body: fd })
+}
+
+export async function saveIngredientIcon(
+  zutatId: number,
+  imageData: string,
+): Promise<{ success: boolean; icon?: string; icon_name?: string }> {
+  const fd = new FormData()
+  fd.append('zutat_id', String(zutatId))
+  fd.append('image_data', imageData)
+  return jsonFetch<{ success: boolean; icon?: string; icon_name?: string }>(
+    apiUrl('saveIngredientIcon'),
+    { method: 'POST', body: fd },
+  )
 }
 
 // ---------- KI-Bildgenerierung (Modell: gemini-2.5-flash-image) ----------

@@ -15,6 +15,7 @@ import {
   deleteImage,
   analyzeRecipeWithAI,
   generateRecipeImage,
+  extractIngredientsFromText,
   type ServerImage,
 } from '@/services/writeApi'
 import { isOnline } from '@/services/network'
@@ -64,6 +65,35 @@ const saving = ref(false)
 const loading = ref(true)
 const errorMsg = ref('')
 
+// KI-Zutaten-Extraktion aus Zubereitung
+const extractingIngredients = ref(false)
+const extractError = ref('')
+
+async function extractIngredientsFromZubereitung(table: string) {
+  if (!anleitung.value.trim()) return
+  extractingIngredients.value = true
+  extractError.value = ''
+  try {
+    const res = await extractIngredientsFromText(anleitung.value)
+    if (!res.success || !res.ingredient_tables) throw new Error(res.error || 'Keine Zutaten gefunden')
+    const { newTables, newIngredients } = await resolveAiIngredients(res.ingredient_tables)
+    // Zutaten in die aktuelle Tabelle einfügen (oder neue Tabellen anlegen wenn >1)
+    if (newTables.length > 1) {
+      // Mehrere Tabellen: vorhandene Tabellen ersetzen
+      tables.value = newTables
+      ingredients.value = [...ingredients.value.filter((z) => z.table !== table), ...newIngredients]
+    } else {
+      // Eine Tabelle: alles in aktuelle Tabelle
+      const mapped = newIngredients.map((z) => ({ ...z, table }))
+      ingredients.value = [...ingredients.value.filter((z) => z.table !== table), ...mapped]
+    }
+  } catch (e) {
+    extractError.value = e instanceof Error ? e.message : 'Fehler bei der KI-Extraktion'
+  } finally {
+    extractingIngredients.value = false
+  }
+}
+
 // --- KI-Modus ---
 type EditMode = 'choose' | 'manual' | 'ai-upload' | 'ai-analyzing' | 'form'
 const editMode = ref<EditMode>('choose')
@@ -99,9 +129,9 @@ onMounted(async () => {
     /* offline */
   }
 
-  // Zutatenliste für KI-Mapping vorladen
+  // Zutatenliste für KI-Mapping vorladen – '*' lädt ALLE (bis 10.000)
   try {
-    allKnownIngredients.value = await searchZutaten('')
+    allKnownIngredients.value = await searchZutaten('*')
   } catch { /* ignore */ }
 
   // KI-Entwurf aus Chat übernehmen (gesetzt von AiChat wenn Nutzer "Rezept anlegen" klickt)
@@ -719,7 +749,8 @@ async function save() {
         </div>
 
         <div v-for="ing in ingredientsOf(table)" :key="ing.ID + '-' + ing.table" class="zrow">
-          <img v-if="ing.Image" :src="cachedSrc(ing.Image)" :alt="ing.Name" />
+          <img v-if="ing.Image" :src="cachedSrc(ing.Image)" :alt="ing.Name" class="zimg" />
+          <span v-else class="zimg-placeholder"><i class="fa-solid fa-bowl-food"></i></span>
           <span class="zname">{{ ing.Name }}</span>
           <div class="zinputs">
             <input v-model.number="ing.Menge" type="number" min="0" step="any" class="zmenge" />
@@ -734,6 +765,20 @@ async function save() {
         <button type="button" class="btn btn--ghost small" @click="openIngredientSearch(table)">
           <i class="fa-solid fa-plus"></i> Zutat hinzufügen
         </button>
+
+        <!-- KI-Extraktion: nur wenn Tabelle leer und Zubereitung vorhanden -->
+        <div v-if="ingredientsOf(table).length === 0 && anleitung.trim()" class="extract-ai-wrap">
+          <button
+            type="button"
+            class="btn btn--ghost small extract-ai-btn"
+            :disabled="extractingIngredients"
+            @click="extractIngredientsFromZubereitung(table)"
+          >
+            <i class="fa-solid" :class="extractingIngredients ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'"></i>
+            {{ extractingIngredients ? 'KI extrahiert…' : 'Per KI aus Zubereitung' }}
+          </button>
+          <p v-if="extractError" class="error-line extract-error">{{ extractError }}</p>
+        </div>
       </div>
       <button type="button" class="btn btn--ghost small" @click="addTable">
         <i class="fa-solid fa-table-list"></i> Neue Tabelle
@@ -756,7 +801,7 @@ async function save() {
       </div>
       <div v-if="newPreviews.length || existingImages.length" class="thumbs">
         <div v-for="img in existingImages" :key="'e' + img.ID" class="thumb">
-          <img :src="mediaUrl(img.Image)" alt="" />
+          <img :src="cachedSrc(mediaUrl(img.Image))" alt="" />
           <button type="button" class="thumb-del" @click="removeExistingImage(img)">
             <i class="fa-solid fa-trash"></i>
           </button>
@@ -833,7 +878,7 @@ async function save() {
           :class="{ on: isApplianceSelected(a) }"
           @click="toggleAppliance(a)"
         >
-          <img :src="a.Image" :alt="a.Name" onerror="this.style.visibility='hidden'" />
+          <img :src="cachedSrc(a.Image)" :alt="a.Name" />
           <span>{{ a.Name }}</span>
         </button>
       </div>
@@ -1083,6 +1128,19 @@ input:focus, .select:focus { border-color: var(--accent); }
   padding: var(--sp-2);
 }
 .zrow img { width: 28px; height: 28px; object-fit: contain; }
+.zimg { width: 28px; height: 28px; object-fit: contain; }
+.zimg-placeholder {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink-faint);
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
 .zname { font-weight: 600; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .zinputs { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .zmenge { flex: 0 0 70px; width: 70px; height: 40px; }
@@ -1231,6 +1289,9 @@ input:focus, .select:focus { border-color: var(--accent); }
   border-radius: var(--r-full); font-weight: 700;
 }
 .error-line { color: var(--danger); font-weight: 600; font-size: var(--fs-sm); }
+.extract-ai-wrap { display: flex; flex-direction: column; gap: var(--sp-1); }
+.extract-ai-btn { color: var(--accent); border-color: var(--accent-soft); }
+.extract-error { margin: 0; }
 .actions { margin-top: var(--sp-3); }
 .search-in { margin-bottom: var(--sp-3); }
 .ing-results {

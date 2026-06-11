@@ -4,9 +4,11 @@ import { useRouter } from 'vue-router'
 import { search, getKategorien, getKalender } from '@/services/api'
 import RecipeGrid from '@/components/RecipeGrid.vue'
 import { cachedSrc } from '@/services/imageCache'
+import { useDiagnosticsStore } from '@/stores/diagnostics'
 import type { SearchResult, Kategorie, KalenderEintrag } from '@/types/models'
 
 const router = useRouter()
+const diagnostics = useDiagnosticsStore()
 
 const randomPool = ref<SearchResult[]>([])
 const hero = ref<SearchResult | null>(null)
@@ -42,6 +44,9 @@ onMounted(async () => {
   void loadRandom()
   heroTimer = window.setInterval(rotateHero, 5000)
 
+  // Diagnose im Hintergrund – läuft nur einmal pro Tag automatisch
+  void diagnostics.runChecks()
+
   getKategorien().then(({ data }) => (kategorien.value = data)).catch(() => {})
 
   search({ neueste: true })
@@ -75,8 +80,22 @@ function openCategory(id: number) {
 <template>
   <div class="container">
     <header class="hero-head">
-      <p class="eyebrow">Willkommen zurück</p>
-      <h1>Was kochen wir heute?</h1>
+      <div class="hero-head-text">
+        <p class="eyebrow">Willkommen zurück</p>
+        <h1>Was kochen wir heute?</h1>
+      </div>
+      <!-- Diagnose-Indikator: nur sichtbar wenn Probleme gefunden -->
+      <Transition name="diag-pop">
+        <RouterLink
+          v-if="diagnostics.hasIssues"
+          to="/diagnostics"
+          class="diag-btn"
+          :class="diagnostics.hasErrors ? 'diag-btn--error' : 'diag-btn--warn'"
+          :title="`${diagnostics.totalIssues} Problem(e) gefunden – zur Diagnose`"
+        >
+          <i class="fa-solid fa-triangle-exclamation"></i>
+        </RouterLink>
+      </Transition>
     </header>
 
     <!-- Hero -->
@@ -164,6 +183,14 @@ function openCategory(id: number) {
 <style scoped>
 .hero-head {
   margin-bottom: var(--sp-5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+.hero-head-text {
+  flex: 1;
+  min-width: 0;
 }
 .hero-head .eyebrow {
   color: var(--accent);
@@ -175,6 +202,47 @@ function openCategory(id: number) {
   font-size: var(--fs-display);
   margin-top: var(--sp-1);
 }
+
+/* ── Diagnose-Button ──────────────────────────────────────────────────────── */
+.diag-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-md);
+  display: grid;
+  place-items: center;
+  font-size: 1.15rem;
+  text-decoration: none;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  animation: diag-pulse 2.8s ease-in-out infinite;
+}
+.diag-btn--error {
+  background: color-mix(in srgb, #ef4444 15%, var(--surface));
+  color: #ef4444;
+  box-shadow: 0 0 0 0 color-mix(in srgb, #ef4444 40%, transparent);
+}
+.diag-btn--warn {
+  background: color-mix(in srgb, #f59e0b 15%, var(--surface));
+  color: #b45309;
+  box-shadow: 0 0 0 0 color-mix(in srgb, #f59e0b 40%, transparent);
+}
+.diag-btn:hover {
+  transform: scale(1.08);
+}
+@keyframes diag-pulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.12); }
+}
+.diag-btn:hover {
+  animation: none;
+  transform: scale(1.1);
+}
+
+/* Einblend-Animation */
+.diag-pop-enter-active { transition: opacity 0.3s var(--ease), transform 0.3s var(--ease); }
+.diag-pop-leave-active { transition: opacity 0.2s var(--ease), transform 0.2s var(--ease); }
+.diag-pop-enter-from  { opacity: 0; transform: scale(0.6); }
+.diag-pop-leave-to    { opacity: 0; transform: scale(0.6); }
 
 .hero,
 .hero-sk {

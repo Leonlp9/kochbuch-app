@@ -19,6 +19,24 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
 include 'shared/global.php';
 global $pdo;
 
+/**
+ * Gibt den vollständigen relativen Pfad für ein Zutaten-Icon zurück.
+ * Sucht zuerst in ingredientIcons/, dann als Fallback in uploads/ (AI-Icons).
+ * In der DB steht immer nur der Dateiname (z.B. "karotten.svg").
+ * Ausnahme: Ältere AI-Icons die als "uploads/ai_icon_xyz.svg" gespeichert wurden.
+ */
+function resolveIngredientIconPath(string $dbImage): string {
+    if ($dbImage === '') return 'ingredientIcons/default.svg';
+    // Ältere Einträge mit vollständigem Pfad (z.B. "uploads/ai_icon_xyz.svg")
+    if (strpos($dbImage, '/') !== false) {
+        return file_exists($dbImage) ? $dbImage : 'ingredientIcons/default.svg';
+    }
+    // Normaler Dateiname: erst ingredientIcons/, dann uploads/ als Fallback
+    if (file_exists('ingredientIcons/' . $dbImage)) return 'ingredientIcons/' . $dbImage;
+    if (file_exists('uploads/' . $dbImage))          return 'uploads/' . $dbImage;
+    return 'ingredientIcons/default.svg';
+}
+
 if (!isset($_GET['task'])) {
     echo json_encode(['error' => 'No task provided']);
     die();
@@ -118,11 +136,7 @@ switch ($task) {
             $zutaten = $sql->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($zutaten as $key => $zutat) {
-                if (!file_exists('ingredientIcons/' . $zutat['Image'])) {
-                    $zutaten[$key]['Image'] = 'ingredientIcons/default.svg';
-                } else {
-                    $zutaten[$key]['Image'] = 'ingredientIcons/' . $zutat['Image'];
-                }
+                $zutaten[$key]['Image'] = resolveIngredientIconPath($zutat['Image'] ?? '');
             }
 
             echo json_encode($zutaten);
@@ -149,11 +163,7 @@ switch ($task) {
         $zutaten = $sql->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($zutaten as $key => $zutat) {
-            if (!file_exists('ingredientIcons/' . $zutat['Image'])) {
-                $zutaten[$key]['Image'] = 'ingredientIcons/default.svg';
-            } else {
-                $zutaten[$key]['Image'] = 'ingredientIcons/' . $zutat['Image'];
-            }
+            $zutaten[$key]['Image'] = resolveIngredientIconPath($zutat['Image'] ?? '');
         }
 
         echo json_encode($zutaten);
@@ -194,11 +204,7 @@ switch ($task) {
                 $rezepte[0]['Zutaten_JSON'] = $zutaten_array;
 
                 foreach ($rezepte[0]['Zutaten_JSON'] as &$zutat) {
-                    if (!file_exists('ingredientIcons/' . $zutat['Image'])) {
-                        $zutat['Image'] = 'ingredientIcons/default.svg';
-                    } else {
-                        $zutat['Image'] = 'ingredientIcons/' . $zutat['Image'];
-                    }
+                    $zutat['Image'] = resolveIngredientIconPath($zutat['Image'] ?? '');
                 }
                 unset($zutat);
 
@@ -468,9 +474,20 @@ switch ($task) {
         }
     case "addZutat":
         if (isset($_GET['name']) && isset($_GET['unit'])) {
-            $name = $_GET['name'];
+            $name = trim($_GET['name']);
+            $unit = trim($_GET['unit']);
+
+            // Prüfen ob bereits eine Zutat mit gleichem Namen (case-insensitive) existiert
+            $existing = $pdo->prepare('SELECT ID FROM zutaten WHERE LOWER(Name) = LOWER(:name) LIMIT 1');
+            $existing->bindValue(':name', $name);
+            $existing->execute();
+            $found = $existing->fetch(PDO::FETCH_ASSOC);
+            if ($found) {
+                echo json_encode(['success' => true, 'ID' => (int)$found['ID'], 'existing' => true]);
+                die();
+            }
+
             $image = strtolower($name) . '.svg';
-            $unit = $_GET['unit'];
 
             $sql = $pdo->prepare('INSERT INTO zutaten (Name, Image, unit) VALUES (:name, :image, :unit)');
             $sql->bindValue(':name', $name);
@@ -1181,6 +1198,239 @@ switch ($task) {
         echo json_encode(['success' => true, 'image_data' => $imgBase64, 'mime_type' => $imgMimeOut]);
         die();
 
+    case 'geminiGenerateIngredientIcon':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            echo json_encode(['error' => 'POST required', 'success' => false]);
+            die();
+        }
+
+        $iconIni   = parse_ini_file('config.ini');
+        $iconToken = $iconIni['gemini_token'] ?? '';
+        if (!$iconToken) {
+            echo json_encode(['error' => 'Kein Gemini-Token in config.ini', 'success' => false]);
+            die();
+        }
+
+        $iconIngName = trim($_POST['name'] ?? '');
+        if (!$iconIngName) {
+            echo json_encode(['error' => 'Kein Zutatenname angegeben', 'success' => false]);
+            die();
+        }
+
+        $iconPrompt =
+            "Create a square cooking ingredient icon for \"$iconIngName\". " .
+            "MANDATORY STYLE RULES - follow exactly: " .
+            "1. PURE WHITE background (#FFFFFF) - absolutely no shadows, gradients or patterns in background. " .
+            "2. Flat Design Plus style: subtle internal color gradients only for roundness/depth - NOT photorealistic. " .
+            "3. The ingredient is centered, filling 70-80% of the square canvas. " .
+            "4. NO black outlines or borders - shapes defined purely by color areas. " .
+            "5. Saturated, clear, bright natural colors that match the real ingredient. " .
+            "6. Slight 3/4 perspective or front view to show its characteristic shape. " .
+            "7. Simplified iconic shapes - reduced to key visual characteristics only. " .
+            "8. Thin interior lines only when essential (e.g. leaf veins) - always in a darker shade of the main color, never black. " .
+            "9. No text, labels, utensils or background props whatsoever. " .
+            "10. Style reference: modern food-app ingredient icons (MyFitnessPal / Yummly style), clean vector-art look.";
+
+        $iconPayload = [
+            'contents'         => [['parts' => [['text' => $iconPrompt]]]],
+            'generationConfig' => ['response_modalities' => ['IMAGE']],
+        ];
+
+        $chIcon = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent');
+        curl_setopt($chIcon, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($chIcon, CURLOPT_POST, true);
+        curl_setopt($chIcon, CURLOPT_POSTFIELDS, json_encode($iconPayload));
+        curl_setopt($chIcon, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'x-goog-api-key: ' . $iconToken]);
+        curl_setopt($chIcon, CURLOPT_TIMEOUT, 120);
+
+        $iconRaw      = curl_exec($chIcon);
+        $iconHttpCode = curl_getinfo($chIcon, CURLINFO_HTTP_CODE);
+        $iconCurlErr  = curl_error($chIcon);
+        curl_close($chIcon);
+
+        if ($iconRaw === false || $iconCurlErr) {
+            echo json_encode(['error' => 'Gemini nicht erreichbar: ' . $iconCurlErr, 'success' => false]);
+            die();
+        }
+
+        $iconApiResp = json_decode($iconRaw, true);
+        if ($iconHttpCode !== 200) {
+            echo json_encode(['error' => 'Gemini Fehler: ' . ($iconApiResp['error']['message'] ?? 'HTTP ' . $iconHttpCode), 'success' => false]);
+            die();
+        }
+
+        $iconBase64  = null;
+        $iconMimeOut = 'image/png';
+        foreach ($iconApiResp['candidates'] ?? [] as $cand) {
+            foreach ($cand['content']['parts'] ?? [] as $part) {
+                if (!empty($part['thought'])) continue;
+                if (isset($part['inlineData'])) {
+                    $iconBase64  = $part['inlineData']['data'];
+                    $iconMimeOut = $part['inlineData']['mimeType'] ?? 'image/png';
+                    break 2;
+                }
+            }
+        }
+
+        if (!$iconBase64) {
+            echo json_encode(['error' => 'Kein Bild von Gemini erhalten', 'success' => false]);
+            die();
+        }
+
+        echo json_encode(['success' => true, 'image_data' => $iconBase64, 'mime_type' => $iconMimeOut]);
+        die();
+
+    case 'saveIngredientIcon':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            echo json_encode(['error' => 'POST required', 'success' => false]);
+            die();
+        }
+
+        $saveZutatId = (int)($_POST['zutat_id'] ?? 0);
+        $saveImgB64  = $_POST['image_data'] ?? '';
+
+        if (!$saveZutatId || !$saveImgB64) {
+            echo json_encode(['error' => 'Fehlende Parameter (zutat_id, image_data)', 'success' => false]);
+            die();
+        }
+
+        $stmtZ = $pdo->prepare("SELECT Name FROM zutaten WHERE ID = ?");
+        $stmtZ->execute([$saveZutatId]);
+        $saveZutat = $stmtZ->fetch(PDO::FETCH_ASSOC);
+        if (!$saveZutat) {
+            echo json_encode(['error' => 'Zutat nicht gefunden', 'success' => false]);
+            die();
+        }
+
+        $rawImgBytes = base64_decode($saveImgB64);
+        if (!$rawImgBytes) {
+            echo json_encode(['error' => 'Ungueltige Bilddaten (Base64)', 'success' => false]);
+            die();
+        }
+
+        // GD: Bild laden + auf max. 512x512 skalieren (verhindert OOM)
+        $prevMem = ini_set('memory_limit', '256M');
+        $gdImg   = @imagecreatefromstring($rawImgBytes);
+        if (!$gdImg) {
+            ini_set('memory_limit', $prevMem);
+            echo json_encode(['error' => 'GD konnte das Bild nicht laden', 'success' => false]);
+            die();
+        }
+
+        imagepalettetotruecolor($gdImg);
+        imagealphablending($gdImg, false);
+        imagesavealpha($gdImg, true);
+
+        $gdW = imagesx($gdImg);
+        $gdH = imagesy($gdImg);
+
+        // Auf max. 512x512 skalieren
+        $maxDim = 512;
+        if ($gdW > $maxDim || $gdH > $maxDim) {
+            $scale = min($maxDim / $gdW, $maxDim / $gdH);
+            $nW  = max(1, (int)round($gdW * $scale));
+            $nH  = max(1, (int)round($gdH * $scale));
+            $tmp = imagecreatetruecolor($nW, $nH);
+            imagealphablending($tmp, false);
+            imagesavealpha($tmp, true);
+            imagefill($tmp, 0, 0, imagecolorallocatealpha($tmp, 0, 0, 0, 127));
+            imagecopyresampled($tmp, $gdImg, 0, 0, 0, 0, $nW, $nH, $gdW, $gdH);
+            imagedestroy($gdImg);
+            $gdImg = $tmp;
+            $gdW   = $nW;
+            $gdH   = $nH;
+        }
+
+        // Flood-Fill Hintergrundentfernung (SplStack = speichereffizient)
+        $transpColor  = imagecolorallocatealpha($gdImg, 255, 255, 255, 127);
+        $bgThreshold  = 30;
+        $fStack = new SplStack();
+        $fStack->push(0);
+        $fStack->push($gdW - 1);
+        $fStack->push(($gdH - 1) * $gdW);
+        $fStack->push(($gdH - 1) * $gdW + $gdW - 1);
+
+        while (!$fStack->isEmpty()) {
+            $pos = $fStack->pop();
+            $fx  = $pos % $gdW;
+            $fy  = intdiv($pos, $gdW);
+            if ($fx < 0 || $fy < 0 || $fx >= $gdW || $fy >= $gdH) continue;
+            $fc = imagecolorat($gdImg, $fx, $fy);
+            if ((($fc >> 24) & 0x7F) >= 100) continue;
+            $fr = ($fc >> 16) & 0xFF;
+            $fg = ($fc >> 8)  & 0xFF;
+            $fb = $fc         & 0xFF;
+            if ($fr >= 255 - $bgThreshold && $fg >= 255 - $bgThreshold && $fb >= 255 - $bgThreshold) {
+                imagesetpixel($gdImg, $fx, $fy, $transpColor);
+                if ($fx + 1 < $gdW) $fStack->push($pos + 1);
+                if ($fx > 0)        $fStack->push($pos - 1);
+                if ($fy + 1 < $gdH) $fStack->push($pos + $gdW);
+                if ($fy > 0)        $fStack->push($pos - $gdW);
+            }
+        }
+
+        // Transparentes PNG rendern
+        ob_start();
+        imagepng($gdImg, null, 6);
+        $transPng = ob_get_clean();
+        imagedestroy($gdImg);
+        ini_set('memory_limit', $prevMem);
+
+        // Als SVG mit eingebettetem PNG verpacken
+        $b64Png = base64_encode($transPng);
+        $svgOut = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+            . '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
+            . ' viewBox="0 0 ' . $gdW . ' ' . $gdH . '"'
+            . ' width="' . $gdW . '" height="' . $gdH . '">' . "\n"
+            . '  <image width="' . $gdW . '" height="' . $gdH . '"'
+            . ' href="data:image/png;base64,' . $b64Png . '"/>' . "\n"
+            . '</svg>';
+
+        // Dateiname = bereinigter Zutatenname (wie die klassischen Icons)
+        $rawN   = strtolower($saveZutat['Name']);
+        $cleanN = preg_replace('/\s+/', '_', $rawN);
+        $cleanN = preg_replace('/[^a-z0-9\-_äöüß]/u', '', $cleanN);
+        $iconFn = $cleanN . '.svg';
+
+        // Erst ingredientIcons/ versuchen (kanonischer Ort),
+        // bei fehlenden Schreibrechten automatisch in uploads/ ausweichen.
+        // DB speichert immer nur den Dateinamen ("feta.svg") –
+        // resolveIngredientIconPath sucht dann in beiden Verzeichnissen.
+        $savedOk  = false;
+        $savedDir = '';
+
+        if (!is_dir('ingredientIcons')) @mkdir('ingredientIcons', 0777, true);
+        // Schreibrechte per chmod versuchen (klappt wenn PHP den Ordner besitzt)
+        if (!is_writable('ingredientIcons')) @chmod('ingredientIcons', 0777);
+
+        if (is_writable('ingredientIcons')) {
+            if (file_put_contents('ingredientIcons/' . $iconFn, $svgOut) !== false) {
+                $savedOk  = true;
+                $savedDir = 'ingredientIcons/';
+            }
+        }
+
+        if (!$savedOk) {
+            // Fallback: uploads/ (immer beschreibbar da Rezeptfotos dort liegen)
+            if (!is_dir('uploads')) @mkdir('uploads', 0777, true);
+            if (file_put_contents('uploads/' . $iconFn, $svgOut) !== false) {
+                $savedOk  = true;
+                $savedDir = 'uploads/';
+            }
+        }
+
+        if (!$savedOk) {
+            echo json_encode(['error' => 'Icon konnte in keinem Verzeichnis gespeichert werden', 'success' => false]);
+            die();
+        }
+
+        // ALLE Zutaten mit dem gleichen Namen (unabhängig von der Einheit) erhalten dasselbe Icon
+        $pdo->prepare("UPDATE zutaten SET Image = ? WHERE LOWER(Name) = LOWER(?)")
+            ->execute([$iconFn, $saveZutat['Name']]);
+
+        echo json_encode(['success' => true, 'icon' => $savedDir . $iconFn, 'icon_name' => $iconFn, 'saved_to' => $savedDir]);
+        die();
+
     case 'geminiChat':
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             echo json_encode(['error' => 'POST required', 'success' => false]);
@@ -1584,6 +1834,321 @@ switch ($task) {
         }
 
         echo json_encode(['success' => true, 'recipe' => $recipeData]);
+        die();
+
+    case 'geminiExtractIngredients':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            echo json_encode(['error' => 'POST erforderlich', 'success' => false]);
+            die();
+        }
+
+        $iniData = parse_ini_file('config.ini');
+        $geminiToken = $iniData['gemini_token'] ?? '';
+
+        if (!$geminiToken) {
+            echo json_encode(['error' => 'Kein Gemini-Token in der config.ini', 'success' => false]);
+            die();
+        }
+
+        $inputText = trim($_POST['text'] ?? '');
+        if (!$inputText) {
+            echo json_encode(['error' => 'Kein Text übergeben', 'success' => false]);
+            die();
+        }
+
+        // Alle Zutaten laden für das Matching
+        $alleZutaten = $pdo->query("SELECT ID, Name, unit FROM zutaten ORDER BY Name")->fetchAll(PDO::FETCH_ASSOC);
+        $zutatenLines = array_map(function($z) {
+            return "ID={$z['ID']}: {$z['Name']} (Einheit: {$z['unit']})";
+        }, $alleZutaten);
+        $zutatenText = implode("\n", $zutatenLines);
+
+        $schema = [
+            'type' => 'object',
+            'properties' => [
+                'ingredient_tables' => [
+                    'type'  => 'array',
+                    'description' => 'Zutatentabellen aus dem Text extrahiert.',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'table_name'  => ['type' => 'string', 'description' => 'Tabellenname, z.B. "Teig". Fuer eine einzige Tabelle leerer String.'],
+                            'ingredients' => [
+                                'type'  => 'array',
+                                'items' => [
+                                    'type' => 'object',
+                                    'properties' => [
+                                        'ingredient_id'   => ['type' => 'integer', 'description' => 'ID aus der Zutatenliste. 0 wenn keine passende vorhanden.'],
+                                        'ingredient_name' => ['type' => 'string', 'description' => 'Name der Zutat.'],
+                                        'quantity'        => ['type' => 'number', 'description' => 'Menge als Zahl (0 wenn keine Angabe)'],
+                                        'unit'            => ['type' => 'string', 'description' => 'Einheit'],
+                                        'additional_info' => ['type' => 'string', 'description' => 'Zusatzinfo wie "gewuerfelt" etc.']
+                                    ],
+                                    'required' => ['ingredient_id', 'ingredient_name', 'quantity', 'unit', 'additional_info']
+                                ]
+                            ]
+                        ],
+                        'required' => ['table_name', 'ingredients']
+                    ]
+                ]
+            ],
+            'required' => ['ingredient_tables']
+        ];
+
+        $prompt = "Extrahiere alle Zutaten aus dem folgenden Zubereitungstext eines Rezepts.\n\n" .
+                  "Zubereitungstext:\n" . strip_tags($inputText) . "\n\n" .
+                  "Verfuegbare Zutaten-Datenbank:\n" . $zutatenText . "\n\n" .
+                  "Regeln:\n" .
+                  "- Suche im Text nach allen erwahnten Zutaten (auch wenn sie implizit genannt sind).\n" .
+                  "- Ordne jede Zutat der passenden Datenbank-Zutat zu (ingredient_id); 0 wenn keine passt.\n" .
+                  "- Falls der Text mehrere Komponenten beschreibt (z.B. Teig + Sauce), trenne in Tabellen.\n" .
+                  "- Sonst eine Tabelle mit leerem table_name.";
+
+        $payload = [
+            'contents' => [[
+                'parts' => [['text' => $prompt]]
+            ]],
+            'generationConfig' => [
+                'response_mime_type' => 'application/json',
+                'response_schema'    => $schema
+            ]
+        ];
+
+        $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'x-goog-api-key: ' . $geminiToken
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        $geminiRaw = curl_exec($ch);
+        $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($geminiRaw === false || $curlError) {
+            echo json_encode(['error' => 'Gemini API nicht erreichbar: ' . $curlError, 'success' => false]);
+            die();
+        }
+
+        $geminiResponse = json_decode($geminiRaw, true);
+
+        if ($httpCode !== 200) {
+            $errorMsg = $geminiResponse['error']['message'] ?? ('HTTP ' . $httpCode);
+            echo json_encode(['error' => 'Gemini Fehler: ' . $errorMsg, 'success' => false]);
+            die();
+        }
+
+        $rawText = $geminiResponse['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        $rawText = preg_replace('/^```json\s*/i', '', trim($rawText));
+        $rawText = preg_replace('/```\s*$/', '', $rawText);
+        $extractedData = json_decode(trim($rawText), true);
+
+        if (!$extractedData || empty($extractedData['ingredient_tables'])) {
+            echo json_encode(['error' => 'Keine Zutaten gefunden', 'success' => false]);
+            die();
+        }
+
+        echo json_encode(['success' => true, 'ingredient_tables' => $extractedData['ingredient_tables']]);
+        die();
+
+    case 'getDiagnostics':
+        $force = isset($_GET['force']) && $_GET['force'] === 'true';
+        $cacheFile = sys_get_temp_dir() . '/kochbuch_diagnostics_cache.json';
+        $cacheTtl = 86400; // 24 Stunden
+
+        if (!$force && file_exists($cacheFile)) {
+            $cached = json_decode(file_get_contents($cacheFile), true);
+            if ($cached && isset($cached['computed_at']) && (time() - $cached['computed_at']) < $cacheTtl) {
+                echo json_encode($cached);
+                die();
+            }
+        }
+
+        // ── Alle Zutaten als Map laden ──────────────────────────────────────
+        $zutatenMap = [];
+        foreach ($pdo->query("SELECT ID, Name, unit FROM zutaten")->fetchAll(PDO::FETCH_ASSOC) as $z) {
+            $zutatenMap[(int)$z['ID']] = $z;
+        }
+
+        // ── Alle Rezepte laden ──────────────────────────────────────────────
+        $allRezepte = $pdo->query(
+            "SELECT ID, Name, Zutaten_JSON, Zeit, Portionen, Zubereitung, Kategorie_ID FROM rezepte"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $checks = [];
+
+        // 1. Kein Bild
+        $rows = $pdo->query(
+            "SELECT r.ID, r.Name FROM rezepte r LEFT JOIN bilder b ON r.ID = b.Rezept_ID WHERE b.ID IS NULL ORDER BY r.Name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $checks[] = ['id' => 'kein-bild', 'title' => 'Kein Bild vorhanden', 'description' => 'Rezepte, für die noch kein Bild hochgeladen wurde.', 'severity' => 'warning',
+            'issues' => array_map(fn($r) => ['rezepte_ID' => (int)$r['ID'], 'name' => $r['Name']], $rows)];
+
+        // 2. Keine Kategorie
+        $rows = $pdo->query(
+            "SELECT ID, Name FROM rezepte WHERE Kategorie_ID IS NULL OR Kategorie_ID = 0 ORDER BY Name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $checks[] = ['id' => 'keine-kategorie', 'title' => 'Keine Kategorie', 'description' => 'Rezepte, die keiner Kategorie zugeordnet sind.', 'severity' => 'error',
+            'issues' => array_map(fn($r) => ['rezepte_ID' => (int)$r['ID'], 'name' => $r['Name']], $rows)];
+
+        // 3. Keine Zeit
+        $rows = $pdo->query(
+            "SELECT ID, Name FROM rezepte WHERE Zeit IS NULL OR Zeit = 0 ORDER BY Name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $checks[] = ['id' => 'keine-zeit', 'title' => 'Keine Zubereitungszeit', 'description' => 'Rezepte, bei denen die Zubereitungszeit fehlt oder 0 ist.', 'severity' => 'warning',
+            'issues' => array_map(fn($r) => ['rezepte_ID' => (int)$r['ID'], 'name' => $r['Name']], $rows)];
+
+        // 4. Keine Portionen
+        $rows = $pdo->query(
+            "SELECT ID, Name FROM rezepte WHERE Portionen IS NULL OR Portionen = 0 ORDER BY Name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $checks[] = ['id' => 'keine-portionen', 'title' => 'Keine Portionenangabe', 'description' => 'Rezepte, bei denen Portionen fehlen oder 0 sind.', 'severity' => 'warning',
+            'issues' => array_map(fn($r) => ['rezepte_ID' => (int)$r['ID'], 'name' => $r['Name']], $rows)];
+
+        // 5. Keine Zubereitung
+        $rows = $pdo->query(
+            "SELECT ID, Name FROM rezepte WHERE Zubereitung IS NULL OR TRIM(Zubereitung) = '' ORDER BY Name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $checks[] = ['id' => 'keine-zubereitung', 'title' => 'Keine Zubereitung', 'description' => 'Rezepte, bei denen der Zubereitungstext fehlt.', 'severity' => 'error',
+            'issues' => array_map(fn($r) => ['rezepte_ID' => (int)$r['ID'], 'name' => $r['Name']], $rows)];
+
+        // 6. Keine Zutaten
+        $noZutatenIssues = [];
+        foreach ($allRezepte as $r) {
+            $zutaten = json_decode($r['Zutaten_JSON'] ?? '[]', true);
+            if (!is_array($zutaten) || count($zutaten) === 0) {
+                $noZutatenIssues[] = ['rezepte_ID' => (int)$r['ID'], 'name' => $r['Name']];
+            }
+        }
+        $checks[] = ['id' => 'keine-zutaten', 'title' => 'Keine Zutaten', 'description' => 'Rezepte, bei denen die Zutatenliste leer ist.', 'severity' => 'error', 'issues' => $noZutatenIssues];
+
+        // 7. Zutat ohne Namen (referenzierte Zutat fehlt in DB)
+        $noNameIssues = [];
+        foreach ($allRezepte as $r) {
+            $zutaten = json_decode($r['Zutaten_JSON'] ?? '[]', true);
+            if (!is_array($zutaten)) continue;
+            $bad = 0;
+            foreach ($zutaten as $z) {
+                $id = (int)($z['ID'] ?? 0);
+                if (!isset($zutatenMap[$id]) || !$zutatenMap[$id]['Name'] || trim($zutatenMap[$id]['Name']) === '') {
+                    $bad++;
+                }
+            }
+            if ($bad > 0) {
+                $noNameIssues[] = ['rezepte_ID' => (int)$r['ID'], 'name' => $r['Name'], 'details' => "$bad Zutat(en) betroffen"];
+            }
+        }
+        $checks[] = ['id' => 'zutat-kein-name', 'title' => 'Zutat ohne Namen', 'description' => 'Zutaten, bei denen der Name leer oder nicht gesetzt ist.', 'severity' => 'error', 'issues' => $noNameIssues];
+
+        // 8. Zutat ohne Menge
+        $noMengeIssues = [];
+        foreach ($allRezepte as $r) {
+            $zutaten = json_decode($r['Zutaten_JSON'] ?? '[]', true);
+            if (!is_array($zutaten)) continue;
+            $bad = 0;
+            foreach ($zutaten as $z) {
+                $menge = $z['Menge'] ?? null;
+                $info  = trim($z['additionalInfo'] ?? '');
+                if ($menge === null || ($menge == 0 && $info === '')) {
+                    $bad++;
+                }
+            }
+            if ($bad > 0) {
+                $noMengeIssues[] = ['rezepte_ID' => (int)$r['ID'], 'name' => $r['Name'], 'details' => "$bad Zutat(en) ohne Menge"];
+            }
+        }
+        $checks[] = ['id' => 'zutat-keine-menge', 'title' => 'Zutat ohne Menge', 'description' => 'Zutaten ohne Mengenangabe und ohne Zusatzinfo.', 'severity' => 'warning', 'issues' => $noMengeIssues];
+
+        // 9. Doppelte Zutaten (gleicher Name + gleiche Einheit)
+        $dupRows = $pdo->query(
+            "SELECT GROUP_CONCAT(ID ORDER BY ID SEPARATOR ',') as ids, Name, unit, COUNT(*) as cnt
+             FROM zutaten GROUP BY LOWER(Name), LOWER(unit) HAVING cnt > 1 ORDER BY Name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $dupIssues = [];
+        foreach ($dupRows as $dup) {
+            $ids = array_map('intval', explode(',', $dup['ids']));
+            $dupIssues[] = [
+                'rezepte_ID' => $ids[0],
+                'name'       => $dup['Name'] . ' (' . $dup['unit'] . ')',
+                'details'    => count($ids) . ' Duplikate',
+                'merge_ids'  => $ids,
+            ];
+        }
+        $checks[] = ['id' => 'doppelte-zutaten', 'title' => 'Doppelte Zutaten', 'description' => 'Zutaten mit gleichem Namen und gleicher Einheit existieren mehrfach. Diese können zusammengeführt werden.', 'severity' => 'error', 'issues' => $dupIssues, 'is_merge_check' => true];
+
+        $result = ['success' => true, 'checks' => $checks, 'computed_at' => time()];
+        file_put_contents($cacheFile, json_encode($result));
+        echo json_encode($result);
+        die();
+
+    case 'mergeZutaten':
+        if (!isset($_GET['keep_id']) || !isset($_GET['merge_ids'])) {
+            echo json_encode(['error' => 'keep_id und merge_ids erforderlich', 'success' => false]);
+            die();
+        }
+
+        $keepId  = (int)$_GET['keep_id'];
+        $rawIds  = explode(',', $_GET['merge_ids']);
+        $mergeIds = array_values(array_filter(array_map('intval', $rawIds), fn($id) => $id > 0 && $id !== $keepId));
+
+        if (empty($mergeIds) || $keepId <= 0) {
+            echo json_encode(['error' => 'Ungültige IDs', 'success' => false]);
+            die();
+        }
+
+        // Alle Rezepte mit Zutaten_JSON durchgehen und Merge-IDs ersetzen
+        $rezepte = $pdo->query("SELECT ID, Zutaten_JSON FROM rezepte WHERE Zutaten_JSON IS NOT NULL AND Zutaten_JSON != '[]'")->fetchAll(PDO::FETCH_ASSOC);
+        $updatedCount = 0;
+
+        foreach ($rezepte as $rezept) {
+            $zutaten = json_decode($rezept['Zutaten_JSON'], true);
+            if (!is_array($zutaten)) continue;
+
+            $hasAny = false;
+            foreach ($zutaten as $z) {
+                if (in_array((int)($z['ID'] ?? 0), $mergeIds)) { $hasAny = true; break; }
+            }
+            if (!$hasAny) continue;
+
+            // Merge: keep-Eintrag sammeln, Duplikate mit Mengen addieren
+            $keepEntry = null;
+            $newZutaten = [];
+
+            foreach ($zutaten as $z) {
+                $id = (int)($z['ID'] ?? 0);
+                if (in_array($id, $mergeIds) || $id === $keepId) {
+                    if ($keepEntry === null) {
+                        $z['ID'] = $keepId;
+                        $keepEntry = $z;
+                    } else {
+                        $keepEntry['Menge'] = round(($keepEntry['Menge'] ?? 0) + ($z['Menge'] ?? 0), 4);
+                    }
+                } else {
+                    $newZutaten[] = $z;
+                }
+            }
+            if ($keepEntry !== null) {
+                $newZutaten[] = $keepEntry;
+            }
+
+            $stmt = $pdo->prepare("UPDATE rezepte SET Zutaten_JSON = ? WHERE ID = ?");
+            $stmt->execute([json_encode($newZutaten, JSON_UNESCAPED_UNICODE), $rezept['ID']]);
+            $updatedCount++;
+        }
+
+        // Merge-Einträge aus der zutaten-Tabelle löschen
+        foreach ($mergeIds as $id) {
+            $pdo->prepare("DELETE FROM zutaten WHERE ID = ?")->execute([$id]);
+        }
+
+        // Diagnostics-Cache invalidieren
+        $cacheFile = sys_get_temp_dir() . '/kochbuch_diagnostics_cache.json';
+        if (file_exists($cacheFile)) unlink($cacheFile);
+
+        echo json_encode(['success' => true, 'updated_recipes' => $updatedCount, 'deleted_ingredients' => count($mergeIds)]);
         die();
 
     default:

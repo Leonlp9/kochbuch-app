@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { getKitchenAppliances } from '@/services/api'
 import { addAppliance, updateAppliance, deleteAppliance } from '@/services/writeApi'
 import { isOnline } from '@/services/network'
+import { cachedSrc } from '@/services/imageCache'
 import Modal from '@/components/Modal.vue'
 import type { KitchenAppliance } from '@/types/models'
 
@@ -96,7 +97,7 @@ async function remove() {
 
     <div v-else class="agrid">
       <button v-for="a in list" :key="a.ID" class="acard" :disabled="!isOnline" @click="openEdit(a)">
-        <img :src="a.Image" :alt="a.Name" onerror="this.style.visibility='hidden'" />
+        <img :src="cachedSrc(a.Image)" :alt="a.Name" />
         <span class="an">{{ a.Name }}</span>
         <small>{{ a.recipe_count ?? 0 }} Rezepte</small>
       </button>

@@ -109,3 +109,35 @@ export async function getEinkaufsliste(): Promise<FetchResult<EinkaufslisteItem[
   return res
 }
 
+// ── Diagnose (server-seitig berechnet) ───────────────────────────────────────
+
+export interface ServerDiagnosticIssue {
+  rezepte_ID: number
+  name: string
+  details?: string
+  /** Nur bei is_merge_check: alle Zutat-IDs dieser Duplikat-Gruppe */
+  merge_ids?: number[]
+}
+
+export interface ServerDiagnosticCheck {
+  id: string
+  title: string
+  description: string
+  severity: 'error' | 'warning'
+  issues: ServerDiagnosticIssue[]
+  /** true wenn dieser Check Merge-Aktionen unterstützt */
+  is_merge_check?: boolean
+}
+
+export interface DiagnosticsResponse {
+  success: boolean
+  checks: ServerDiagnosticCheck[]
+  computed_at: number
+}
+
+export async function getDiagnostics(force = false): Promise<DiagnosticsResponse> {
+  const params: Record<string, string> = force ? { force: 'true' } : {}
+  const res = await getJSON<DiagnosticsResponse>(apiUrl('getDiagnostics', params), 'diagnostics')
+  return res.data
+}
+
