@@ -7,7 +7,7 @@
 // Voll-URL zu deinem Kochbuch-Server, MIT abschliessendem Slash.
 //   Tailscale:  'http://100.x.y.z/Kochbuch/'
 //   LAN:        'http://192.168.178.50/Kochbuch/'
-export const PI_SERVER = 'http://192.168.178.143/KochbuchNewApi/'
+export const PI_SERVER = 'http://192.168.178.53/KochbuchNewApi/'
 
 // Im Browser-Dev-Modus laeuft alles ueber den Vite-Proxy ('/pi-api/'),
 // damit kein CORS-Problem entsteht. In der gebauten App (Handy) wird

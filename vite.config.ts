@@ -12,7 +12,7 @@ const { version } = JSON.parse(readFileSync('./package.json', 'utf-8')) as { ver
 //  (Im Browser-Dev-Modus wird darueber per Proxy zugegriffen,
 //   damit kein CORS-Problem entsteht.)
 // =============================================================
-const PI_SERVER = 'http://192.168.178.143/KochbuchNewApi/'
+const PI_SERVER = 'http://192.168.178.53/KochbuchNewApi/'
 
 export default defineConfig({
   plugins: [vue()],
