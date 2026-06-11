@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { search as apiSearch, getKategorien } from '@/services/api'
+import { search as apiSearch, getKategorien, searchZutaten, type ZutatSuche } from '@/services/api'
 import RecipeGrid from '@/components/RecipeGrid.vue'
 import type { SearchResult, Kategorie } from '@/types/models'
 
@@ -12,6 +12,45 @@ const order = ref('Name')
 const zeit = ref('4')
 const kategorie = ref('')
 const showFilters = ref(false)
+
+// --- Zutaten-Filter ---
+interface IngredientTag { ID: number; Name: string; Image: string }
+const includeIngredients = ref<IngredientTag[]>([])
+const excludeIngredients = ref<IngredientTag[]>([])
+const ingQuery = ref('')
+const ingResults = ref<ZutatSuche[]>([])
+let ingDebounce: number | undefined
+function searchIngredients() {
+  clearTimeout(ingDebounce)
+  if (!ingQuery.value.trim()) { ingResults.value = []; return }
+  ingDebounce = window.setTimeout(async () => {
+    try {
+      const raw = await searchZutaten(ingQuery.value)
+      // Duplikate nach Name entfernen (gleiche Zutat mit verschiedenen Einheiten)
+      const seen = new Set<string>()
+      ingResults.value = raw.filter(z => {
+        const key = z.Name.toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+    } catch { ingResults.value = [] }
+  }, 220)
+}
+function addInclude(z: ZutatSuche) {
+  if (!includeIngredients.value.find(i => i.ID === z.ID))
+    includeIngredients.value.push({ ID: z.ID, Name: z.Name, Image: z.Image })
+  excludeIngredients.value = excludeIngredients.value.filter(i => i.ID !== z.ID)
+  ingQuery.value = ''; ingResults.value = []
+}
+function addExclude(z: ZutatSuche) {
+  if (!excludeIngredients.value.find(i => i.ID === z.ID))
+    excludeIngredients.value.push({ ID: z.ID, Name: z.Name, Image: z.Image })
+  includeIngredients.value = includeIngredients.value.filter(i => i.ID !== z.ID)
+  ingQuery.value = ''; ingResults.value = []
+}
+function removeInclude(id: number) { includeIngredients.value = includeIngredients.value.filter(i => i.ID !== id) }
+function removeExclude(id: number) { excludeIngredients.value = excludeIngredients.value.filter(i => i.ID !== id) }
 
 const allResults = ref<SearchResult[]>([])
 const loading = ref(true)
@@ -48,6 +87,12 @@ function runSearch() {
     order: order.value,
     zeit: zeit.value,
     kategorie: kategorie.value || undefined,
+    whitelistIngredients: includeIngredients.value.length
+      ? JSON.stringify(includeIngredients.value.map(i => i.ID))
+      : undefined,
+    blacklistIngredients: excludeIngredients.value.length
+      ? JSON.stringify(excludeIngredients.value.map(i => i.ID))
+      : undefined,
   })
     .then(({ data }) => (allResults.value = data))
     .catch(() => (allResults.value = []))
@@ -58,7 +103,7 @@ function onInput() {
   debounce = window.setTimeout(runSearch, 250)
 }
 
-watch([order, zeit, kategorie], runSearch)
+watch([order, zeit, kategorie, includeIngredients, excludeIngredients], runSearch, { deep: true })
 
 // --- Infinite Scroll via IntersectionObserver ---
 const sentinel = ref<HTMLElement | null>(null)
@@ -155,6 +200,63 @@ watch(loading, (v) => {
               {{ k.Name }} ({{ k.usage_count ?? 0 }})
             </option>
           </select>
+        </div>
+
+        <!-- Zutaten-Filter -->
+        <div class="filter-group">
+          <span class="flabel">Zutaten filtern</span>
+          <div class="ing-search-wrap">
+            <input
+              v-model="ingQuery"
+              class="ing-search-input"
+              placeholder="Zutat suchen…"
+              @input="searchIngredients"
+            />
+            <div v-if="ingResults.length" class="ing-dropdown">
+              <div
+                v-for="z in ingResults.slice(0, 8)"
+                :key="z.ID"
+                class="ing-row"
+              >
+                <img v-if="z.Image" :src="z.Image" :alt="z.Name" class="ing-icon" />
+                <i v-else class="fa-solid fa-bowl-food ing-icon-fa"></i>
+                <span class="ing-name">{{ z.Name }}</span>
+                <button type="button" class="ing-btn ing-btn--include" @click="addInclude(z)" title="Muss enthalten sein">
+                  <i class="fa-solid fa-plus"></i>
+                </button>
+                <button type="button" class="ing-btn ing-btn--exclude" @click="addExclude(z)" title="Darf nicht enthalten sein">
+                  <i class="fa-solid fa-minus"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Ausgewählte Zutaten anzeigen -->
+          <div v-if="includeIngredients.length || excludeIngredients.length" class="ing-tags">
+            <span v-if="includeIngredients.length" class="ing-tags-label">
+              <i class="fa-solid fa-check"></i> Muss enthalten:
+            </span>
+            <span
+              v-for="tag in includeIngredients"
+              :key="'i' + tag.ID"
+              class="ing-tag ing-tag--include"
+            >
+              {{ tag.Name }}
+              <button type="button" @click="removeInclude(tag.ID)"><i class="fa-solid fa-xmark"></i></button>
+            </span>
+
+            <span v-if="excludeIngredients.length" class="ing-tags-label">
+              <i class="fa-solid fa-ban"></i> Ohne:
+            </span>
+            <span
+              v-for="tag in excludeIngredients"
+              :key="'e' + tag.ID"
+              class="ing-tag ing-tag--exclude"
+            >
+              {{ tag.Name }}
+              <button type="button" @click="removeExclude(tag.ID)"><i class="fa-solid fa-xmark"></i></button>
+            </span>
+          </div>
         </div>
       </div>
     </Transition>
@@ -330,6 +432,139 @@ input[type='range']::-webkit-slider-thumb {
 }
 .expand-enter-to,
 .expand-leave-from {
-  max-height: 400px;
+  max-height: 900px;
+}
+
+/* ── Zutaten-Filter ── */
+.ing-search-wrap {
+  position: relative;
+}
+.ing-search-input {
+  width: 100%;
+  height: 44px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  padding: 0 var(--sp-3);
+  outline: none;
+  font-size: var(--fs-sm);
+  box-sizing: border-box;
+}
+.ing-search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.ing-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  z-index: 50;
+  overflow: hidden;
+}
+.ing-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  transition: background 0.12s;
+}
+.ing-row:hover { background: var(--surface-2); }
+.ing-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
+}
+.ing-icon-fa {
+  width: 28px;
+  text-align: center;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+.ing-name {
+  flex: 1;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ing-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.14s;
+}
+.ing-btn--include {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent-strong);
+}
+.ing-btn--include:hover { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.ing-btn--exclude {
+  background: color-mix(in srgb, #ef4444 15%, transparent);
+  color: #dc2626;
+}
+.ing-btn--exclude:hover { background: color-mix(in srgb, #ef4444 28%, transparent); }
+
+.ing-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.ing-tags-label {
+  font-size: var(--fs-xs, 0.72rem);
+  font-weight: 700;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin-top: var(--sp-1);
+}
+.ing-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px 4px 10px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.ing-tag button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+  font-size: 0.75rem;
+}
+.ing-tag button:hover { opacity: 1; }
+.ing-tag--include {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-strong);
+}
+.ing-tag--exclude {
+  background: color-mix(in srgb, #ef4444 15%, transparent);
+  color: #dc2626;
 }
 </style>

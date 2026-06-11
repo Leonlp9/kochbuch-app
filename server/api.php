@@ -387,7 +387,7 @@ switch ($task) {
                 $ingredient = (int)$ingredient;
                 $ingredientConditions[] = "JSON_CONTAINS(rezepte.Zutaten_JSON, '[{\"ID\":\"$ingredient\"}]')";
             }
-            $where .= " AND (" . implode(" OR ", $ingredientConditions) . ")";
+            $where .= " AND (" . implode(" AND ", $ingredientConditions) . ")";
         }
 
         switch ($zeit) {

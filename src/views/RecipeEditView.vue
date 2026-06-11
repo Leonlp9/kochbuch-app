@@ -64,6 +64,7 @@ const newPreviews = ref<string[]>([])
 const saving = ref(false)
 const loading = ref(true)
 const errorMsg = ref('')
+const imageCompressing = ref(false)
 
 // KI-Zutaten-Extraktion aus Zubereitung
 const extractingIngredients = ref(false)
@@ -441,6 +442,7 @@ async function compressImage(file: File, maxWidth = 1920, quality = 0.85): Promi
 async function onFilesPicked(e: Event) {
   const input = e.target as HTMLInputElement
   if (!input.files) return
+  imageCompressing.value = true
   for (const f of Array.from(input.files)) {
     try {
       const compressed = await compressImage(f)
@@ -452,6 +454,7 @@ async function onFilesPicked(e: Event) {
       newPreviews.value.push(URL.createObjectURL(f))
     }
   }
+  imageCompressing.value = false
   input.value = ''
 }
 function removeNewFile(i: number) {
@@ -791,11 +794,16 @@ async function save() {
       <!-- Bilder -->
       <h2 class="sec">Bilder</h2>
       <div class="upload-row">
-        <label class="upload">
-          <i class="fa-solid fa-upload"></i> Bilder ausw&auml;hlen
-          <input type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,image/*" multiple @change="onFilesPicked" />
+        <label class="upload" :class="{ 'upload--compressing': imageCompressing }">
+          <template v-if="imageCompressing">
+            <i class="fa-solid fa-spinner fa-spin"></i> Bild wird verarbeitet&hellip;
+          </template>
+          <template v-else>
+            <i class="fa-solid fa-upload"></i> Bilder ausw&auml;hlen
+          </template>
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,image/*" multiple :disabled="imageCompressing" @change="onFilesPicked" />
         </label>
-        <button type="button" class="btn btn--ghost ai-img-btn" @click="openAiImageModal">
+        <button type="button" class="btn btn--ghost ai-img-btn" :disabled="imageCompressing" @click="openAiImageModal">
           <i class="fa-solid fa-wand-magic-sparkles"></i> KI-Bild generieren
         </button>
       </div>
@@ -818,10 +826,11 @@ async function save() {
       <p v-if="errorMsg" class="error-line">{{ errorMsg }}</p>
 
       <div class="actions no-print">
-        <button type="submit" class="btn btn--accent btn--block" :disabled="saving || !isOnline">
+        <button type="submit" class="btn btn--accent btn--block" :disabled="saving || !isOnline || imageCompressing">
           <i v-if="saving" class="fa-solid fa-spinner fa-spin"></i>
+          <i v-else-if="imageCompressing" class="fa-solid fa-spinner fa-spin"></i>
           <i v-else class="fa-solid fa-floppy-disk"></i>
-          {{ saving ? 'Speichern…' : isEdit ? 'Speichern' : 'Rezept anlegen' }}
+          {{ saving ? 'Speichern…' : imageCompressing ? 'Bild wird verarbeitet…' : isEdit ? 'Speichern' : 'Rezept anlegen' }}
         </button>
       </div>
     </form>
@@ -1274,6 +1283,12 @@ input:focus, .select:focus { border-color: var(--accent); }
   color: var(--ink-soft);
   width: fit-content;
   height: auto;
+}
+.upload--compressing {
+  cursor: not-allowed;
+  opacity: 0.7;
+  color: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 .upload input { display: none; }
 .thumbs { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
