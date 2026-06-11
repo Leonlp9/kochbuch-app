@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { searchZutaten, type ZutatSuche } from '@/services/api'
 import { editZutat, deleteZutat, generateIngredientIcon, saveIngredientIcon } from '@/services/writeApi'
 import { isOnline } from '@/services/network'
+import { cachedSrc } from '@/services/imageCache'
 import Modal from '@/components/Modal.vue'
 
 const UNITS = ['g', 'ml', 'L', 'Stück', 'Prise', 'TL', 'EL', 'Tasse', 'Packung', 'Bund', 'Bd', 'Dose', 'Paket', 'Becher', 'Scheibe', 'Zehe', 'Zweige', 'Würfel', 'Messerspitze', 'Blätter']
@@ -135,7 +136,8 @@ async function remove() {
 
     <div v-else class="zgrid">
       <button v-for="z in list" :key="z.ID" class="zcard" :disabled="!isOnline" @click="openEdit(z)">
-        <img :src="z.Image" :alt="z.Name" onerror="this.style.visibility='hidden'" />
+        <img v-if="z.Image" :src="cachedSrc(z.Image)" :alt="z.Name" />
+        <span v-else class="zcard-placeholder"><i class="fa-solid fa-bowl-food"></i></span>
         <span class="zn">{{ z.Name }}</span>
         <small v-if="z.unit">{{ z.unit }}</small>
       </button>
@@ -159,7 +161,7 @@ async function remove() {
       <div class="field icon-current-wrap" v-if="editing?.Image">
         <label>Aktuelles Icon</label>
         <div class="icon-current">
-          <img :src="editing.Image" :alt="editing.Name" class="icon-preview-img" />
+          <img :src="cachedSrc(editing.Image)" :alt="editing.Name" class="icon-preview-img" />
         </div>
       </div>
 
@@ -305,6 +307,15 @@ async function remove() {
 }
 .zcard:disabled { opacity: 0.6; cursor: not-allowed; }
 .zcard img { width: 40px; height: 40px; object-fit: contain; }
+.zcard-placeholder {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+  font-size: 1.1rem;
+}
 .zn { font-weight: 600; font-size: var(--fs-sm); text-align: center; }
 .zcard small { color: var(--ink-faint); }
 .field {
